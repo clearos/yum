@@ -1,0 +1,1406 @@
+commit b6f5e550048705c0979f0e5bb88f0b83d5750daf
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 15:59:20 2014 -0500
+
+    Fix yum repo-pkgs <blah> install exist-other-repo.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 0604d63..622bc14 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4714,6 +4714,8 @@ much more problems).
+                         arg)
+ 
+                     mypkgs = self.returnPackagesByDep(arg)
++                    if repoid:
++                        mypkgs = misc.filter_pkgs_repoid(mypkgs, repoid)
+                     if not misc.re_glob(arg):
+                         mypkgs = self.bestPackagesFromList(mypkgs,
+                                                            single_name=True,
+commit 26128173b362474456e8f0642073ecb0322ed031
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 16:06:00 2014 -0500
+
+    Add override_install_langs configuration, for container install needs.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index c66eba8..bf3c442 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -329,6 +329,12 @@ context of an rpm transaction set you're best leaving it alone. Default is
+ an empty list.
+ 
+ .IP
++\fBoverride_install_langs\fR
++This is a way to override rpm's _install_langs macro. without having to change
++it within rpm's macro file.
++Default is nothing (so does nothing).
++
++.IP
+ \fBrecent\fR
+ Number of days back to look for `recent' packages added to a repository.
+ Used by the \fBlist recent\fR command. Default is `7'.
+diff --git a/yum/config.py b/yum/config.py
+index c38d574..09a4dcc 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -768,6 +768,7 @@ class YumConf(StartupConf):
+             'kernel-hugemem', 'kernel-enterprise', 'kernel-bigmem',
+             'kernel-devel', 'kernel-PAE', 'kernel-PAE-debug'])
+     tsflags = ListOption()
++    override_install_langs = Option()
+ 
+     assumeyes = BoolOption(False)
+     assumeno  = BoolOption(False)
+diff --git a/yum/depsolve.py b/yum/depsolve.py
+index 8a675eb..1840b43 100644
+--- a/yum/depsolve.py
++++ b/yum/depsolve.py
+@@ -180,6 +180,13 @@ class Depsolve(object):
+     def initActionTs(self):
+         """Set up the transaction set that will be used for all the work."""
+         
++        # LOL, override rpm transaction macro.
++        # Must be done before rpmtsCreate()
++        if self.conf.override_install_langs:
++            old_install_langs = rpm.expandMacro("%_install_langs")
++            rpm.expandMacro("%define _install_langs " +
++                            self.conf.override_install_langs)
++
+         self._ts = rpmUtils.transaction.TransactionWrapper(self.conf.installroot)
+         ts_flags_to_rpm = { 'noscripts': rpm.RPMTRANS_FLAG_NOSCRIPTS,
+                             'notriggers': rpm.RPMTRANS_FLAG_NOTRIGGERS,
+commit 99540142d78484327716643daab03581fef6ee4b
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 16:06:56 2014 -0500
+
+    Install yumdb keys for install_langs and tsflags values.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 622bc14..3b6ed82 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -1915,6 +1915,13 @@ much more problems).
+                 txmbr_cb(txmbr, count)
+             return count
+         
++        oil = self.conf.override_install_langs
++        if not oil:
++            oil = rpm.expandMacro("%_install_langs")
++        if oil == 'all':
++            oil = ''
++        elif oil:
++            oil = ":".join(sorted(oil.split(':')))
+         vt_st = time.time()
+         self.plugins.run('preverifytrans')
+         count = 0
+@@ -1942,6 +1949,17 @@ much more problems).
+                     if var == 'arch':     continue
+                     # Skip uuid?
+                     setattr(po.yumdb_info, 'var_' + var, self.conf.yumvar[var])
++                if oil:
++                    po.yumdb_info.ts_install_langs = oil
++                if 'nocontexts' in self.conf.tsflags:
++                    po.yumdb_info.tsflag_nocontexts = 'true'
++                if 'nodocs' in self.conf.tsflags:
++                    po.yumdb_info.tsflag_nodocs = 'true'
++                if 'noscripts' in self.conf.tsflags:
++                    po.yumdb_info.tsflag_noscripts = 'true'
++                if 'notriggers' in self.conf.tsflags:
++                    po.yumdb_info.tsflag_notriggers = 'true'
++
+                 if hasattr(self, 'args') and self.args:
+                     po.yumdb_info.command_line = ' '.join(self.args)
+                 elif hasattr(self, 'cmds') and self.cmds:
+commit 598b2f64f06dc625fca3e5a3b9ef0000f973eb7f
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 16:07:40 2014 -0500
+
+    Add _writeRawConfigFile() so we can change yum.conf values.
+
+diff --git a/yum/config.py b/yum/config.py
+index 09a4dcc..f213fc1 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -1301,6 +1301,48 @@ def writeRawRepoFile(repo,only=None):
+     fp.write(str(ini))
+     fp.close()
+ 
++# Copied from yum-config-manager ... how we alter yu.conf ... used in "yum fs"
++def _writeRawConfigFile(filename, section_id, yumvar,
++                        cfgoptions, items, optionobj,
++                        only=None):
++    """
++    From writeRawRepoFile, but so we can alter [main] too.
++    """
++    ini = INIConfig(open(filename))
++
++    osection_id = section_id
++    # b/c repoids can have $values in them we need to map both ways to figure
++    # out which one is which
++    if section_id not in ini._sections:
++        for sect in ini._sections.keys():
++            if varReplace(sect, yumvar) == section_id:
++                section_id = sect
++
++    # Updated the ConfigParser with the changed values
++    cfgOptions = cfgoptions(osection_id)
++    for name,value in items():
++        if value is None: # Proxy
++            continue
++
++        if only is not None and name not in only:
++            continue
++
++        option = optionobj(name)
++        ovalue = option.tostring(value)
++        #  If the value is the same, but just interpreted ... when we don't want
++        # to keep the interpreted values.
++        if (name in ini[section_id] and
++            ovalue == varReplace(ini[section_id][name], yumvar)):
++            ovalue = ini[section_id][name]
++
++        if name not in cfgOptions and option.default == value:
++            continue
++
++        ini[section_id][name] = ovalue
++    fp =file(filename, "w")
++    fp.write(str(ini))
++    fp.close()
++
+ #def main():
+ #    mainconf = readMainConfig(readStartupConfig('/etc/yum/yum.conf', '/'))
+ #    print mainconf.cachedir
+commit 6a415f0b18c0533dfdc97fdab3306ec8ccebb52d
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 16:55:45 2014 -0500
+
+    Add fs sub-command and docs. Mostly for small installroot creation.
+
+diff --git a/cli.py b/cli.py
+index eed63a2..7173688 100755
+--- a/cli.py
++++ b/cli.py
+@@ -112,6 +112,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+         self.registerCommand(yumcommands.UpdateinfoCommand())
+         self.registerCommand(yumcommands.UpdateMinimalCommand())
+         self.registerCommand(yumcommands.FSSnapshotCommand())
++        self.registerCommand(yumcommands.FSCommand())
+ 
+     def registerCommand(self, command):
+         """Register a :class:`yumcommands.YumCommand` so that it can be called by
+diff --git a/docs/yum.8 b/docs/yum.8
+index c9b529e..31c1c88 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -86,6 +86,8 @@ gnome\-packagekit application\&.
+ .br
+ .I \fR * fssnapshot [summary | list | have-space | create | delete]
+ .br
++.I \fR * fs [filters | refilter | refilter-cleanup | du]
++.br
+ .I \fR * check
+ .br 
+ .I \fR * help [command] 
+@@ -718,6 +720,36 @@ then you can create and delete snapshots using:
+ Configuration Options: \fBfssnap_automatic_pre\fP, \fBfssnap_automatic_post\fP, \fBfssnap_automatic_keep\fP, \fBfssnap_percentage\fP, \fBfssnap_devices\fP
+ 
+ .IP
++.IP "\fBfs\fP"
++This command has a few sub-commands to act on the filesystem data of the host,
++mainly for removing languages/documentation for minimal installs:
++
++.br 
++.I \fR yum fs filters
++
++.br 
++.I \fR yum fs filter languages en:es
++
++.br 
++.I \fR yum fs filter documentation
++
++.br 
++.I \fR yum fs refilter [package(s)]
++
++.br 
++.I \fR yum fs refilter-cleanup [package(s)]
++
++.br 
++.I \fR yum fs du [path]
++
++the first 3 being a simple interface to change yum.conf altering the tsflags
++and override_install_langs configurations. The refilter command is an optimized
++way of calling "yum reinstall" to reinstall the packages with the new filters
++applied. The refilter-cleanup command is needed because rpm doesn't actually
++remove the files on reinstall, as it should. And the du command is included so
++you can easily see the space used/saved.
++
++.IP
+ .IP "\fBcheck\fP"
+ Checks the local rpmdb and produces information on any problems it finds. You
+ can pass the check command the arguments "dependencies", "duplicates", "obsoletes" or "provides",
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index bf3c442..4ec7689 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -327,12 +327,14 @@ with newer rpm versions.
+ You can set all/any of them. However, if you don't know what these do in the
+ context of an rpm transaction set you're best leaving it alone. Default is
+ an empty list.
++Also see the "yum fs" command, for excluding docs.
+ 
+ .IP
+ \fBoverride_install_langs\fR
+ This is a way to override rpm's _install_langs macro. without having to change
+ it within rpm's macro file.
+ Default is nothing (so does nothing).
++Also see the "yum fs" command.
+ 
+ .IP
+ \fBrecent\fR
+diff --git a/yumcommands.py b/yumcommands.py
+index 4214383..03450c4 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4291,3 +4291,457 @@ class FSSnapshotCommand(YumCommand):
+             print msg % (len(snaps), base.format_number(used), len(dev_oris))
+ 
+         return 0, [basecmd + ' ' + subcommand + ' done']
++
++
++class FSCommand(YumCommand):
++    def getNames(self):
++        return ['fs']
++
++    def getUsage(self):
++        return "[]"
++
++    def getSummary(self):
++        return _("Creates filesystem snapshots, or lists/deletes current snapshots.")
++
++    def doCheck(self, base, basecmd, extcmds):
++        """Verify that conditions are met so that this command can run.
++        These include that the program is being run by the root user,
++        that there are enabled repositories with gpg keys, and that
++        this command is called with appropriate arguments.
++
++        :param base: a :class:`yum.Yumbase` object
++        :param basecmd: the name of the command
++        :param extcmds: the command line arguments passed to *basecmd*
++        """
++        checkRootUID(base)
++
++    def _fs_pkg_walk(self, pkgs, prefix, modified=False, verbose=False):
++
++        pfr = {'norm' : {},
++               'mod' : {},
++               'ghost' : {},
++               'miss' : {},
++               'not' : {}
++               }
++
++        def quick_match(pkgs):
++            for pkg in pkgs:
++                for fname in pkg.filelist + pkg.dirlist:
++                    if not fname.startswith(prefix):
++                        continue
++                    pfr['norm'][fname] = pkg
++                for fname in pkg.ghostlist:
++                    if not fname.startswith(prefix):
++                        continue
++                    pfr['ghost'][fname] = pkg
++            return pfr
++
++        def _quick_match_iter(pkgs):
++            # Walking the fi information is much slower than filelist/dirlist
++            for pkg in pkgs:
++                found = False
++                for fname in pkg.dirlist:
++                    if fname.startswith(prefix):
++                        yield pkg
++                        found = True
++                        break
++                if found:
++                    continue
++                for fname in pkg.filelist:
++                    if fname.startswith(prefix):
++                        yield pkg
++                        found = True
++                        break
++                if found:
++                    continue
++                for fname in pkg.ghostlist:
++                    if fname.startswith(prefix):
++                        yield pkg
++                        break
++
++        def verify_match(pkgs):
++            _pfs = []
++            def scoop_pfs(pfs):
++                _pfs.append(pfs)
++
++                if not modified:
++                    return []
++
++                return pfs
++
++            if prefix != '/':
++                pkgs = _quick_match_iter(pkgs)
++            for pkg in pkgs:
++                _pfs = []
++                probs = pkg.verify(patterns=[prefix+'*'], fake_problems=False,
++                                   callback=scoop_pfs)
++
++                for pf in _pfs[0]:
++                    if pf.filename in probs:
++                        pfr['mod'][pf.filename] = pkg
++                    elif pf.rpmfile_state == 'not installed':
++                        pfr['not'][pf.filename] = pkg
++                    elif 'ghost' in pf.rpmfile_types:
++                        pfr['ghost'][pf.filename] = pkg
++                    elif 'missing ok' in pf.rpmfile_types:
++                        pfr['miss'][pf.filename] = pkg
++                    else:
++                        pfr['norm'][pf.filename] = pkg
++            return pfr
++
++        # return quick_match(pkgs)
++        return verify_match(pkgs)
++
++    def _fs_du(self, base, extcmds):
++        def _dir_prefixes(path):
++            while path != '/':
++                path = os.path.dirname(path)
++                yield path
++
++        def loc_num(x):
++            """ String of a number in the readable "locale" format. """
++            return locale.format("%d", int(x), True)
++
++        data = {'pkgs_size' : {},
++                'pkgs_not_size' : {},
++                'pkgs_ghost_size' : {},
++                'pkgs_miss_size' : {},
++                'pkgs_mod_size' : {},
++
++                'pres_size' : {},
++                'data_size' : {},
++                'data_not_size' : {},
++
++                'pkgs_count' : 0,
++                'pkgs_not_count' : 0,
++                'pkgs_ghost_count' : 0,
++                'pkgs_miss_count' : 0,
++                'pkgs_mod_count' : 0,
++
++                'data_count' : 0} # data_not_count == pkgs_not_count
++
++        def _add_size(d, v, size):
++            if v not in d:
++                d[v] = 0
++            d[v] += size
++
++        def deal_with_file(fpath, need_prefix=True):
++            size = os.path.getsize(fpath)
++            if fpath in pfr['norm']:
++                data['pkgs_count'] += size
++                _add_size(data['pkgs_size'], pfr['norm'][fpath], size)
++            elif fpath in pfr['ghost']:
++                data['pkgs_ghost_count'] += size
++                _add_size(data['pkgs_ghost_size'], pfr['ghost'][fpath], size)
++            elif fpath in pfr['not']:
++                data['pkgs_not_count'] += size
++                _add_size(data['pkgs_not_size'], pfr['not'][fpath], size)
++                data['data_not_size'][fpath] = size
++            elif fpath in pfr['miss']:
++                data['pkgs_miss_count'] += size
++                _add_size(data['pkgs_miss_size'], pfr['miss'][fpath], size)
++            elif fpath in pfr['mod']:
++                data['pkgs_mod_count'] += size
++                _add_size(data['pkgs_mod_size'], pfr['mod'][fpath], size)
++            elif need_prefix and False:
++                for fpre_path in _dir_prefixes(fpath):
++                    if fpre_path not in pkg_files:
++                        continue
++                    _add_size(data['pres_size'], pkg_files[fpre_path], size)
++                    break
++                data['data_count'] += size
++                data['data_size'][fpath] = size
++            else:
++                data['data_count'] += size
++                data['data_size'][fpath] = size
++
++        prefix = "."
++        if extcmds:
++            prefix = extcmds[0]
++            extcmds = extcmds[1:]
++
++        if not os.path.exists(prefix):
++            return 1, [_('No such file or directory: ' + prefix)]
++
++        max_show_len = 4
++        if extcmds:
++            try:
++                max_show_len = int(extcmds[0])
++            except:
++                pass
++
++        verbose = base.verbose_logger.isEnabledFor(logginglevels.DEBUG_3)
++
++        pfr = self._fs_pkg_walk(base.rpmdb, prefix, verbose=verbose)
++
++        base.closeRpmDB() # C-c ftw.
++
++        num = 0
++        if os.path.isfile(prefix):
++            num += 1
++            deal_with_file(prefix)
++
++        for root, dirs, files in os.walk(prefix):
++            for fname in files:
++                num += 1
++                fpath = os.path.normpath(root + '/' + fname)
++                if os.path.islink(fpath):
++                    continue
++
++                deal_with_file(fpath, need_prefix=verbose)
++
++        # output
++        print "Files            :", loc_num(num)
++        tot = 0
++        tot += data['pkgs_count']
++        tot += data['pkgs_ghost_count']
++        tot += data['pkgs_not_count']
++        tot += data['pkgs_miss_count']
++        tot += data['pkgs_mod_count']
++        tot += data['data_count']
++        print "Total size       :", base.format_number(tot)
++        if not tot:
++            return
++
++        num = data['pkgs_count']
++        if not verbose:
++            num += data['pkgs_ghost_count']
++            num += data['pkgs_miss_count']
++            num += data['pkgs_mod_count']
++        print "       Pkgs size :", "%-5s" % base.format_number(num),
++        print "(%3.0f%%)" % ((num * 100.0) / tot)
++        if verbose:
++            for (title, num) in ((_(" Ghost pkgs size :"),
++                                  data['pkgs_ghost_count']),
++                                 (_(" Not pkgs size :"),
++                                  data['pkgs_not_count']),
++                                 (_(" Miss pkgs size :"),
++                                  data['pkgs_miss_count']),
++                                 (_(" Mod. pkgs size :"),
++                                  data['pkgs_mod_count'])):
++                if not num:
++                    continue
++                print title, "%-5s" % base.format_number(num),
++                print "(%3.0f%%)" % ((num * 100.0) / tot)
++        num = data['data_count']
++        if not verbose:
++            num += data['pkgs_not_count']
++        print _("       Data size :"), "%-5s" % base.format_number(num),
++        print "(%3.0f%%)" % ((num * 100.0) / tot)
++        if verbose:
++            print ''
++            print _("Pkgs       :"), loc_num(len(data['pkgs_size']))
++            print _("Ghost Pkgs :"), loc_num(len(data['pkgs_ghost_size']))
++            print _("Not Pkgs   :"), loc_num(len(data['pkgs_not_size']))
++            print _("Miss. Pkgs :"), loc_num(len(data['pkgs_miss_size']))
++            print _("Mod. Pkgs  :"), loc_num(len(data['pkgs_mod_size']))
++
++        def _pkgs(p_size, msg):
++            tot = min(max_show_len, len(p_size))
++            if tot:
++                print ''
++                print msg % tot
++            num = 0
++            for pkg in sorted(p_size, key=lambda x: p_size[x], reverse=True):
++                num += 1
++                print _("%*d. %60s %-5s") % (len(str(tot)), num, pkg,
++                                             base.format_number(p_size[pkg]))
++                if num >= tot:
++                    break
++
++        if verbose:
++            _pkgs(data['pkgs_size'], _('Top %d packages:'))
++            _pkgs(data['pkgs_ghost_size'], _('Top %d ghost packages:'))
++            _pkgs(data['pkgs_not_size'], _('Top %d not. packages:'))
++            _pkgs(data['pkgs_miss_size'], _('Top %d miss packages:'))
++            _pkgs(data['pkgs_mod_size'], _('Top %d mod. packages:'))
++            _pkgs(data['pres_size'], _('Top %d prefix packages:'))
++        else:
++            tmp = {}
++            tmp.update(data['pkgs_size'])
++            for d in data['pkgs_ghost_size']:
++                _add_size(tmp, d, data['pkgs_ghost_size'][d])
++            for d in data['pkgs_miss_size']:
++                _add_size(tmp, d, data['pkgs_miss_size'][d])
++            for d in data['pkgs_mod_size']:
++                _add_size(tmp, d, data['pkgs_mod_size'][d])
++            _pkgs(tmp, _('Top %d packages:'))
++
++        print ''
++        if verbose:
++            data_size = data['data_size']
++        else:
++            data_size = {}
++            data_size.update(data['data_size'])
++            data_size.update(data['data_not_size'])
++
++        tot = min(max_show_len, len(data_size))
++        if tot:
++            print _('Top %d non-package files:') % tot
++        num = 0
++        for fname in sorted(data_size,
++                            key=lambda x: data_size[x],
++                            reverse=True):
++            num += 1
++            dsznum = data_size[fname]
++            print _("%*d. %60s %-5s") % (len(str(tot)), num, fname,
++                                         base.format_number(dsznum))
++            if num >= tot:
++                break
++
++    def _fs_filters(self, base, extcmds):
++        writeRawConfigFile = yum.config._writeRawConfigFile
++
++        if not extcmds:
++            oil = base.conf.override_install_langs
++            if not oil:
++                oil = "rpm: " + rpm.expandMacro("%_install_langs")
++            print "File system filters:"
++            print "  Nodocs:", 'nodocs' in base.conf.tsflags
++            print "  Languages:", oil
++        elif extcmds[0] in ('docs', 'nodocs',
++                            'documentation', 'nodocumentation'):
++            c_f = 'nodocs' in base.conf.tsflags
++            n_f = extcmds[0].startswith('no')
++            if n_f == c_f:
++                return
++
++            nts = base.conf.tsflags
++            if n_f:
++                nts = nts + ['nodocs']
++            else:
++                nts = [x for x in nts if x != 'nodocs']
++            base.conf.tsflags = " ".join(nts)
++
++            fn = '/etc/yum/yum.conf'
++            if not os.path.exists(fn):
++                # Try the old default
++                fn = '/etc/yum.conf'
++            ybc = base.conf
++            writeRawConfigFile(fn, 'main', ybc.yumvar,
++                               ybc.cfg.options, ybc.iteritems,
++                               ybc.optionobj,
++                               only=['tsflags'])
++        elif extcmds[0] in ('langs', 'nolangs', 'lang', 'nolang',
++                            'languages', 'nolanguages',
++                            'language', 'nolanguage'):
++            if extcmds[0].startswith('no') or len(extcmds) < 2 or 'all' in extcmds:
++                val = 'all'
++            else:
++                val = ":".join(extcmds[1:])
++
++            if val == base.conf.override_install_langs:
++                return
++
++            base.conf.override_install_langs = val
++
++            fn = '/etc/yum/yum.conf'
++            if not os.path.exists(fn):
++                # Try the old default
++                fn = '/etc/yum.conf'
++            ybc = base.conf
++            writeRawConfigFile(fn, 'main', ybc.yumvar,
++                               ybc.cfg.options, ybc.iteritems,
++                               ybc.optionobj,
++                               only=['override_install_langs'])
++        else:
++            return 1, [_('Not a valid sub-command of fs filter')]
++
++    def _fs_refilter(self, base, extcmds):
++        c_f = 'nodocs' in base.conf.tsflags
++        # FIXME: C&P from init.
++        oil = base.conf.override_install_langs
++        if not oil:
++            oil = rpm.expandMacro("%_install_langs")
++        if oil == 'all':
++            oil = ''
++        elif oil:
++            oil = ":".join(sorted(oil.split(':')))
++
++        found = False
++        num = 0
++        for pkg in base.rpmdb.returnPackages(patterns=extcmds):
++            if False: pass
++            elif oil != pkg.yumdb_info.get('ts_install_langs', ''):
++                txmbrs = base.reinstall(po=pkg)
++                num += len(txmbrs)
++            elif c_f != ('true' == pkg.yumdb_info.get('tsflag_nodocs')):
++                txmbrs = base.reinstall(po=pkg)
++                num += len(txmbrs)
++            else:
++                found = True
++
++        if num:
++            return 2,P_('%d package to reinstall','%d packages to reinstall',
++                        num)
++
++        if not found:
++            return 1, [_('No valid packages: %s') % " ".join(extcmds)]
++
++    def _fs_refilter_cleanup(self, base, extcmds):
++        pkgs = base.rpmdb.returnPackages(patterns=extcmds)
++
++        verbose = base.verbose_logger.isEnabledFor(logginglevels.DEBUG_3)
++
++        pfr = self._fs_pkg_walk(pkgs, "/", verbose=verbose, modified=True)
++
++        base.closeRpmDB() # C-c ftw.
++
++        for fname in sorted(pfr['not']):
++            print _('Removing:'), fname
++            misc.unlink_f(fname)
++
++    def _fs_diff(self, base, extcmds):
++        pass
++    def _fs_status(self, base, extcmds):
++        pass
++
++    def doCommand(self, base, basecmd, extcmds):
++        """Execute this command.
++
++        :param base: a :class:`yum.Yumbase` object
++        :param basecmd: the name of the command
++        :param extcmds: the command line arguments passed to *basecmd*
++        :return: (exit_code, [ errors ])
++
++        exit_code is::
++
++            0 = we're done, exit
++            1 = we've errored, exit with error string
++            2 = we've got work yet to do, onto the next stage
++        """
++        if extcmds and extcmds[0] in ('filters', 'filter',
++                                      'refilter', 'refilter-cleanup',
++                                      'du', 'status', 'diff'):
++            subcommand = extcmds[0]
++            extcmds = extcmds[1:]
++        else:
++            subcommand = 'filters'
++
++        if False: pass
++
++        elif subcommand == 'du':
++            ret = self._fs_du(base, extcmds)
++
++        elif subcommand in ('filter', 'filters'):
++            ret = self._fs_filters(base, extcmds)
++
++        elif subcommand == 'refilter':
++            ret = self._fs_refilter(base, extcmds)
++
++        elif subcommand == 'refilter-cleanup':
++            ret = self._fs_refilter_cleanup(base, extcmds)
++
++        elif False and subcommand == 'diff':
++            ret = self._fs_diff(base, extcmds)
++
++        elif False and subcommand == 'status':
++            ret = self._fs_status(base, extcmds)
++
++        else:
++            return 1, [_('Not a valid sub-command of %s') % basecmd]
++
++        if ret is not None:
++            return ret
++
++        return 0, [basecmd + ' ' + subcommand + ' done']
+commit 5dd124173de6c9ac1ce53b507f9aaa9cae6d030a
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 16:56:33 2014 -0500
+
+    Optimize pkg.verify() for "fs du" and "fs refilter".
+
+diff --git a/yum/packages.py b/yum/packages.py
+index cc1f1e3..1b3061b 100644
+--- a/yum/packages.py
++++ b/yum/packages.py
+@@ -1779,6 +1779,7 @@ class YUMVerifyPackage:
+         self._files = {}
+ 
+ 
++_last_fnmatch = {}
+ class _RPMVerifyPackage(YUMVerifyPackage):
+     def __init__(self, po, fi, def_csum_type, patterns, all):
+         YUMVerifyPackage.__init__(self, po)
+@@ -1791,18 +1792,30 @@ class _RPMVerifyPackage(YUMVerifyPackage):
+         (fi, def_csum_type, patterns, all) = self._presetup
+         del self._presetup
+ 
++        global _last_fnmatch
++        _this_fnmatch = {}
+         for ft in fi:
+             fn = ft[0]
+             if patterns:
+                 matched = False
+                 for p in patterns:
+-                    if fnmatch.fnmatch(fn, p):
++                    if p in _last_fnmatch:
++                        match = _last_fnmatch[p]
++                    elif p in _this_fnmatch:
++                        match = _this_fnmatch[p]
++                    else:
++                        match = misc.compile_pattern(p)
++                    _this_fnmatch[p] = match
++
++                    if match(fn):
+                         matched = True
+                         break
+                 if not matched: 
+                     continue
+ 
+             self.add(_RPMVerifyPackageFile(fi, ft, def_csum_type, all))
++        if _this_fnmatch:
++            _last_fnmatch = _this_fnmatch
+ 
+     def __contains__(self, *args, **kwargs):
+         self._setup()
+@@ -1834,7 +1847,8 @@ class YumInstalledPackage(YumHeaderPackage):
+             self.yumdb_info = yumdb.get_package(self)
+ 
+     def verify(self, patterns=[], deps=False, script=False,
+-               fake_problems=True, all=False, fast=False, callback=None):
++               fake_problems=True, all=False, fast=False, callback=None,
++               failfast=False):
+         """verify that the installed files match the packaged checksum
+            optionally verify they match only if they are in the 'pattern' list
+            returns a tuple """
+@@ -1973,6 +1987,8 @@ class YumInstalledPackage(YumHeaderPackage):
+                 verify_digest = pf.verify_digest
+                 if fast and not problems and (my_st_size == pf.size):
+                     verify_digest = False
++                if failfast and problems:
++                    verify_digest = False
+                 if not pf.digest:
+                     verify_digest = False
+ 
+diff --git a/yumcommands.py b/yumcommands.py
+index 03450c4..c5abfba 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4374,7 +4374,7 @@ class FSCommand(YumCommand):
+             for pkg in pkgs:
+                 _pfs = []
+                 probs = pkg.verify(patterns=[prefix+'*'], fake_problems=False,
+-                                   callback=scoop_pfs)
++                                   callback=scoop_pfs, failfast=True)
+ 
+                 for pf in _pfs[0]:
+                     if pf.filename in probs:
+commit 6e4a68cf40283f3a110c049d5e81db886ef593e1
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 17:56:42 2014 -0500
+
+    Add the fs status/diff commands.
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index 31c1c88..6794581 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -742,12 +742,19 @@ mainly for removing languages/documentation for minimal installs:
+ .br 
+ .I \fR yum fs du [path]
+ 
++.br 
++.I \fR yum fs status [path]
++
++.br 
++.I \fR yum fs diff [path]
++
++
+ the first 3 being a simple interface to change yum.conf altering the tsflags
+ and override_install_langs configurations. The refilter command is an optimized
+ way of calling "yum reinstall" to reinstall the packages with the new filters
+ applied. The refilter-cleanup command is needed because rpm doesn't actually
+-remove the files on reinstall, as it should. And the du command is included so
+-you can easily see the space used/saved.
++remove the files on reinstall, as it should. And the du/status/diff commands are
++included so you can easily see the space used/saved and any other changes.
+ 
+ .IP
+ .IP "\fBcheck\fP"
+diff --git a/yumcommands.py b/yumcommands.py
+index c5abfba..b4e172c 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -21,6 +21,7 @@ Classes for subcommands of the yum command line interface.
+ """
+ 
+ import os
++import sys
+ import cli
+ from yum import logginglevels
+ from yum import _, P_
+@@ -4692,9 +4693,112 @@ class FSCommand(YumCommand):
+             misc.unlink_f(fname)
+ 
+     def _fs_diff(self, base, extcmds):
+-        pass
++        def deal_with_file(fpath):
++            if fpath in pfr['norm']:
++                pass
++            elif fpath in pfr['ghost']:
++                pass
++            elif fpath in pfr['not']:
++                print >>sys.stderr, _('Not installed:'), fpath
++            elif fpath in pfr['miss']:
++                pass
++            elif fpath in pfr['mod']:
++                pkg = apkgs[pfr['mod'][fpath].pkgtup]
++                # Hacky ... but works.
++                sys.stdout.flush()
++                extract_cmd = "cd %s; rpm2cpio %s | cpio --quiet -id .%s"
++                extract_cmd =  extract_cmd % (tmpdir, pkg.localPkg(), fpath)
++                os.system(extract_cmd)
++                diff_cmd = "diff -ru %s %s" % (tmpdir + fpath, fpath)
++                print diff_cmd
++                sys.stdout.flush()
++                os.system(diff_cmd)
++            else:
++                print >>sys.stderr, _('Not packaged?:'), fpath
++
++        prefix = "."
++        if extcmds:
++            prefix = extcmds[0]
++            extcmds = extcmds[1:]
++
++        pkgs = base.rpmdb.returnPackages(patterns=extcmds)
++
++        verbose = base.verbose_logger.isEnabledFor(logginglevels.DEBUG_3)
++
++        pfr = self._fs_pkg_walk(pkgs, prefix, verbose=verbose, modified=True)
++
++        base.closeRpmDB() # C-c ftw.
++
++        apkgs = {}
++        downloadpkgs = []
++        for ipkg in set(pfr['mod'].values()):
++            for apkg in base.pkgSack.searchPkgTuple(ipkg.pkgtup):
++                iyi = ipkg.yumdb_info
++                if ('checksum_type' in iyi and
++                    'checksum_data' in iyi and
++                    iyi.checksum_type == apkg.checksum_type and
++                    iyi.checksum_data == apkg.pkgId):
++                    apkgs[ipkg.pkgtup] = apkg
++                    downloadpkgs.append(apkg)
++                    break
++            if ipkg.pkgtup not in apkgs:
++                raise yum.Errors.YumBaseError, _("Can't find package: %s") %ipkg
++
++        if downloadpkgs:
++            tmpdir = tempfile.mkdtemp()
++            problems = base.downloadPkgs(downloadpkgs, callback_total=base.download_callback_total_cb) 
++            if len(problems) > 0:
++                errstring = ''
++                errstring += _('Error downloading packages:\n')
++                for key in problems:
++                    errors = yum.misc.unique(problems[key])
++                    for error in errors:
++                        errstring += '  %s: %s\n' % (key, error)
++                raise yum.Errors.YumBaseError, errstring
++
++        for root, dirs, files in os.walk(prefix):
++            for fname in files:
++                fpath = os.path.normpath(root + '/' + fname)
++                if os.path.islink(fpath):
++                    continue
++
++                deal_with_file(fpath)
++
+     def _fs_status(self, base, extcmds):
+-        pass
++        def deal_with_file(fpath):
++            if fpath in pfr['norm']:
++                pass
++            elif fpath in pfr['ghost']:
++                pass
++            elif fpath in pfr['not']:
++                print _('Not installed:'), fpath
++            elif fpath in pfr['miss']:
++                pass
++            elif fpath in pfr['mod']:
++                print _('Modified:'), fpath
++            else:
++                print _('Not packaged?:'), fpath
++
++        prefix = "."
++        if extcmds:
++            prefix = extcmds[0]
++            extcmds = extcmds[1:]
++
++        pkgs = base.rpmdb.returnPackages(patterns=extcmds)
++
++        verbose = base.verbose_logger.isEnabledFor(logginglevels.DEBUG_3)
++
++        pfr = self._fs_pkg_walk(pkgs, prefix, verbose=verbose, modified=True)
++
++        base.closeRpmDB() # C-c ftw.
++
++        for root, dirs, files in os.walk(prefix):
++            for fname in files:
++                fpath = os.path.normpath(root + '/' + fname)
++                if os.path.islink(fpath):
++                    continue
++
++                deal_with_file(fpath)
+ 
+     def doCommand(self, base, basecmd, extcmds):
+         """Execute this command.
+@@ -4732,10 +4836,10 @@ class FSCommand(YumCommand):
+         elif subcommand == 'refilter-cleanup':
+             ret = self._fs_refilter_cleanup(base, extcmds)
+ 
+-        elif False and subcommand == 'diff':
++        elif subcommand == 'diff':
+             ret = self._fs_diff(base, extcmds)
+ 
+-        elif False and subcommand == 'status':
++        elif subcommand == 'status':
+             ret = self._fs_status(base, extcmds)
+ 
+         else:
+commit df42263f375b032b73d9732a8b051e57a35973ab
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 18:17:31 2014 -0500
+
+    Move exactarchlist_default to ditro. variable.
+
+diff --git a/yum/config.py b/yum/config.py
+index f213fc1..69f8e2e 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -50,6 +50,10 @@ __main_multilib_policy_default__ = 'all'
+ __main_failovermethod_default__ = 'roundrobin'
+ __main_installonly_limit_default__ = 0
+ __group_command_default__ = 'compat'
++__exactarchlist_default__ = ['kernel', 'kernel-smp',
++                             'kernel-hugemem', 'kernel-enterprise',
++                             'kernel-bigmem',
++                             'kernel-devel', 'kernel-PAE', 'kernel-PAE-debug']
+ 
+ class Option(object):
+     """
+@@ -764,9 +768,7 @@ class YumConf(StartupConf):
+                                           names_of_0=["0", "<off>"])
+     kernelpkgnames = ListOption(['kernel','kernel-smp', 'kernel-enterprise',
+             'kernel-bigmem', 'kernel-BOOT', 'kernel-PAE', 'kernel-PAE-debug'])
+-    exactarchlist = ListOption(['kernel', 'kernel-smp',
+-            'kernel-hugemem', 'kernel-enterprise', 'kernel-bigmem',
+-            'kernel-devel', 'kernel-PAE', 'kernel-PAE-debug'])
++    exactarchlist = ListOption(__exactarchlist_default__)
+     tsflags = ListOption()
+     override_install_langs = Option()
+ 
+commit 7e890388473519d8374e228783150f4e11dff3e0
+Author: James Antill <james@and.org>
+Date:   Wed Feb 12 18:59:42 2014 -0500
+
+    Add override_install_langs to test.FakeConf.
+
+diff --git a/test/testbase.py b/test/testbase.py
+index 9d331c6..e2a1d05 100644
+--- a/test/testbase.py
++++ b/test/testbase.py
+@@ -66,6 +66,7 @@ class FakeConf(object):
+         self.reposdir = '/tmp/XXXX'
+         self.diskspacecheck = True
+         self.depsolve_loop_limit = 10
++        self.override_install_langs = ''
+ 
+ class FakeSack:
+     """ Fake PackageSack to use with FakeRepository"""
+commit 57e62d0ab105727689a2cbc690ff5d62137be676
+Author: James Antill <james@and.org>
+Date:   Fri Feb 14 14:58:31 2014 -0500
+
+    Auto-enable repos. that contain packages we need in fs diff.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index b4e172c..475d982 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4732,8 +4732,14 @@ class FSCommand(YumCommand):
+         apkgs = {}
+         downloadpkgs = []
+         for ipkg in set(pfr['mod'].values()):
++            iyi = ipkg.yumdb_info
++            if 'from_repo' in iyi: # Updates-testing etc.
++                if iyi.from_repo in base.repos.repos:
++                    repo = base.repos.getRepo(iyi.from_repo)
++                    if not repo.isEnabled():
++                        base.repos.enableRepo(repo.id)
++
+             for apkg in base.pkgSack.searchPkgTuple(ipkg.pkgtup):
+-                iyi = ipkg.yumdb_info
+                 if ('checksum_type' in iyi and
+                     'checksum_data' in iyi and
+                     iyi.checksum_type == apkg.checksum_type and
+commit 81b9dc2fc39ed6960f061cdc1c84f37aada0fd0a
+Author: James Antill <james@and.org>
+Date:   Fri Feb 14 15:02:58 2014 -0500
+
+    Cleanup tmpdir for fs diff.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 475d982..c93faa1 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -33,6 +33,7 @@ import fnmatch
+ import time
+ from yum.i18n import utf8_width, utf8_width_fill, to_unicode, exception2msg
+ import tempfile
++import shutil
+ import glob
+ 
+ import yum.config
+@@ -4770,6 +4771,9 @@ class FSCommand(YumCommand):
+ 
+                 deal_with_file(fpath)
+ 
++        if downloadpkgs:
++            shutil.rmtree(tmpdir)
++
+     def _fs_status(self, base, extcmds):
+         def deal_with_file(fpath):
+             if fpath in pfr['norm']:
+commit f932ddc40d8452c1a7d46d7c7fd8eb90b6f5cac2
+Author: James Antill <james@and.org>
+Date:   Fri Feb 21 16:15:01 2014 -0500
+
+    Add spec requires for fs sub-command.
+
+diff --git a/yum.spec b/yum.spec
+index 93cfa14..854baf3 100644
+--- a/yum.spec
++++ b/yum.spec
+@@ -98,6 +98,9 @@ Requires: pygpgme
+ Requires: pyliblzma
+ # Not really a suggests anymore, due to metadata using it.
+ Requires: pyxattr
++# Suggests, needed for yum fs diff
++Requires: diffutils
++Requires: cpio
+ 
+ Conflicts: rpm >= 5-0
+ # Zif is a re-implementation of yum in C, however:
+commit 00aec000813db1b45a7b38e1aa396b1bb8764eb7
+Author: James Antill <james@and.org>
+Date:   Fri Feb 21 16:19:28 2014 -0500
+
+    Copy packages in/out of an installroot, for no downloads creating containers.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 37ab468..dc468cb 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -45,6 +45,7 @@ import logging
+ import logging.config
+ import operator
+ import tempfile
++import shutil
+ 
+ import yum.i18n
+ # This is required to make gaftonmode work...
+@@ -689,6 +690,12 @@ class YumBase(depsolve.Depsolve):
+         if hasattr(self, 'prerepoconf'):
+             self.conf # touch the config class first
+ 
++            if (self.conf.installroot != '/' and
++                not hasattr(self, '_old_cachedir')):
++                # Try loading cache from outside...
++                ir = len(self.conf.installroot)
++                self._old_cachedir = self.conf.cachedir[ir:]
++
+             self.getReposFromConfig()
+ 
+         #  For rhnplugin, and in theory other stuff, calling
+@@ -2398,6 +2405,9 @@ much more problems).
+                 self.verbose_logger.warn(_("ignoring a dupe of %s") % po)
+                 return True
+             beenthere.add(local)
++            if downloadonly and not os.path.exists(local):
++              # Check before we munge the name...
++              po.repo._preload_pkg_from_system_cache(po)
+             if os.path.exists(local):
+                 if self.verifyPkg(local, po, False):
+                     self.verbose_logger.debug(_("using local copy of %s") % po)
+@@ -2442,6 +2452,22 @@ much more problems).
+                 format_number(rpmsize), format_number(deltasize), 100 - deltasize*100.0/rpmsize)
+ 
+         if downloadonly:
++            if hasattr(self, '_old_cachedir'):
++              # Try to link/copy them out, if we have somewhere to put them.
++
++              for po in pkglist:
++                if not po.localpath.startswith(self.conf.cachedir):
++                  continue
++
++                end = po.localpath[len(self.conf.cachedir):]
++                try:
++                  os.link(po.localpath, self._old_cachedir + end)
++                except:
++                  try:
++                    shutil.copy2(po.localpath, self._old_cachedir + end)
++                  except:
++                    pass
++
+             # close DBs, unlock
+             self.repos.close()
+             self.closeRpmDB()
+commit fcec4d88fa18c30e1aeabf724bec11dcfb1e2655
+Author: James Antill <james@and.org>
+Date:   Fri Feb 21 16:16:23 2014 -0500
+
+     A few cleanups for the fs sub-command:
+    
+    . Add checks for diff/cpio/rpm2cpio.
+    . Add missing import for rpm, when override_install_langs isn't set.
+    . Allow users to run some of the commands.
+    . Map fs snap to fssnap command.
+    . Add translations and add messages when you alter the filters.
+    . Save config. file inside the chroot.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 52b8c90..4385a34 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -23,6 +23,7 @@ Classes for subcommands of the yum command line interface.
+ import os
+ import sys
+ import cli
++import rpm
+ from yum import logginglevels
+ from yum import _, P_
+ from yum import misc
+@@ -34,6 +35,7 @@ import time
+ from yum.i18n import utf8_width, utf8_width_fill, to_unicode, exception2msg
+ import tempfile
+ import shutil
++import distutils.spawn
+ import glob
+ 
+ import yum.config
+@@ -4334,6 +4336,14 @@ class FSCommand(YumCommand):
+         :param basecmd: the name of the command
+         :param extcmds: the command line arguments passed to *basecmd*
+         """
++        if extcmds and extcmds[0] in ('du', 'status', 'diff'):
++            # Anyone can go for it...
++            return
++
++        if len(extcmds) == 1 and extcmds[0] in ('filters', 'filter'):
++            # Can look, but not touch.
++            return
++
+         checkRootUID(base)
+ 
+     def _fs_pkg_walk(self, pkgs, prefix, modified=False, verbose=False):
+@@ -4611,22 +4621,48 @@ class FSCommand(YumCommand):
+                 break
+ 
+     def _fs_filters(self, base, extcmds):
+-        writeRawConfigFile = yum.config._writeRawConfigFile
++        def _save(confkey):
++            writeRawConfigFile = yum.config._writeRawConfigFile
++
++            # Always create installroot, so we can change it.
++            if not os.path.exists(base.conf.installroot + '/etc/yum'):
++                os.makedirs(base.conf.installroot + '/etc/yum')
++
++            fn = base.conf.installroot+'/etc/yum/yum.conf'
++            if not os.path.exists(fn):
++                # Try the old default
++                nfn = base.conf.installroot+'/etc/yum.conf'
++                if not os.path.exists(nfn):
++                    shutil.copy2(base.conf.config_file_path, fn)
++            ybc = base.conf
++            writeRawConfigFile(fn, 'main', ybc.yumvar,
++                               ybc.cfg.options, ybc.iteritems,
++                               ybc.optionobj,
++                               only=[confkey])
+ 
+         if not extcmds:
+             oil = base.conf.override_install_langs
+             if not oil:
+                 oil = "rpm: " + rpm.expandMacro("%_install_langs")
+-            print "File system filters:"
+-            print "  Nodocs:", 'nodocs' in base.conf.tsflags
+-            print "  Languages:", oil
++            print _("File system filters:")
++            print _("  Nodocs:"), 'nodocs' in base.conf.tsflags
++            print _("  Languages:"), oil
+         elif extcmds[0] in ('docs', 'nodocs',
+                             'documentation', 'nodocumentation'):
+             c_f = 'nodocs' in base.conf.tsflags
+-            n_f = extcmds[0].startswith('no')
++            n_f = not extcmds[0].startswith('no')
+             if n_f == c_f:
++                if n_f:
++                    print _("Already enabled documentation filter.")
++                else:
++                    print _("Already disabled documentation filter.")
+                 return
+ 
++            if n_f:
++                print _("Enabling documentation filter.")
++            else:
++                print _("Disabling documentation filter.")
++
+             nts = base.conf.tsflags
+             if n_f:
+                 nts = nts + ['nodocs']
+@@ -4634,15 +4670,8 @@ class FSCommand(YumCommand):
+                 nts = [x for x in nts if x != 'nodocs']
+             base.conf.tsflags = " ".join(nts)
+ 
+-            fn = '/etc/yum/yum.conf'
+-            if not os.path.exists(fn):
+-                # Try the old default
+-                fn = '/etc/yum.conf'
+-            ybc = base.conf
+-            writeRawConfigFile(fn, 'main', ybc.yumvar,
+-                               ybc.cfg.options, ybc.iteritems,
+-                               ybc.optionobj,
+-                               only=['tsflags'])
++            _save('tsflags')
++
+         elif extcmds[0] in ('langs', 'nolangs', 'lang', 'nolang',
+                             'languages', 'nolanguages',
+                             'language', 'nolanguage'):
+@@ -4652,19 +4681,21 @@ class FSCommand(YumCommand):
+                 val = ":".join(extcmds[1:])
+ 
+             if val == base.conf.override_install_langs:
++                if val:
++                    print _("Already filtering languages to: %s") % val
++                else:
++                    print _("Already disabled language filter.")
+                 return
+ 
++            if val:
++                print _("Setting language filter to: %s") % val
++            else:
++                print _("Disabling language filter.")
++
+             base.conf.override_install_langs = val
+ 
+-            fn = '/etc/yum/yum.conf'
+-            if not os.path.exists(fn):
+-                # Try the old default
+-                fn = '/etc/yum.conf'
+-            ybc = base.conf
+-            writeRawConfigFile(fn, 'main', ybc.yumvar,
+-                               ybc.cfg.options, ybc.iteritems,
+-                               ybc.optionobj,
+-                               only=['override_install_langs'])
++            _save('override_install_langs')
++
+         else:
+             return 1, [_('Not a valid sub-command of fs filter')]
+ 
+@@ -4736,6 +4767,14 @@ class FSCommand(YumCommand):
+             else:
+                 print >>sys.stderr, _('Not packaged?:'), fpath
+ 
++        if not distutils.spawn.find_executable("diff"):
++            raise yum.Errors.YumBaseError, _("Can't find diff command")
++        # These just shouldn't happen...
++        if not distutils.spawn.find_executable("cpio"):
++            raise yum.Errors.YumBaseError, _("Can't find cpio command")
++        if not distutils.spawn.find_executable("rpm2cpio"):
++            raise yum.Errors.YumBaseError, _("Can't find rpm2cpio command")
++
+         prefix = "."
+         if extcmds:
+             prefix = extcmds[0]
+@@ -4845,7 +4884,7 @@ class FSCommand(YumCommand):
+         """
+         if extcmds and extcmds[0] in ('filters', 'filter',
+                                       'refilter', 'refilter-cleanup',
+-                                      'du', 'status', 'diff'):
++                                      'du', 'status', 'diff', 'snap'):
+             subcommand = extcmds[0]
+             extcmds = extcmds[1:]
+         else:
+@@ -4871,6 +4910,9 @@ class FSCommand(YumCommand):
+         elif subcommand == 'status':
+             ret = self._fs_status(base, extcmds)
+ 
++        elif subcommand == 'snap':
++            ret = FSSnapshotCommand().doCommand(base, 'fs snap', args)
++
+         else:
+             return 1, [_('Not a valid sub-command of %s') % basecmd]
+ 
+commit 77c85efcb09f0121d6a611d92e1fc6a237179656
+Author: James Antill <james@and.org>
+Date:   Sun Feb 23 20:57:06 2014 -0500
+
+    Choose yum.conf correctly for fs filter saving.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 4385a34..ef84c1f 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4632,7 +4632,9 @@ class FSCommand(YumCommand):
+             if not os.path.exists(fn):
+                 # Try the old default
+                 nfn = base.conf.installroot+'/etc/yum.conf'
+-                if not os.path.exists(nfn):
++                if os.path.exists(nfn):
++                    fn = nfn
++                else:
+                     shutil.copy2(base.conf.config_file_path, fn)
+             ybc = base.conf
+             writeRawConfigFile(fn, 'main', ybc.yumvar,
+commit 02a2d73afe6ea19ae17cbab2192c1d7e12be5ec2
+Author: James Antill <james@and.org>
+Date:   Mon Mar 24 16:17:19 2014 -0400
+
+    No error for refilter cleanup, rm dirs. and eat all errors. BZ 1062959.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 75b3ce2..c76e192 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -37,6 +37,7 @@ import tempfile
+ import shutil
+ import distutils.spawn
+ import glob
++import errno
+ 
+ import yum.config
+ from yum import updateinfo
+@@ -4742,7 +4743,16 @@ class FSCommand(YumCommand):
+ 
+         for fname in sorted(pfr['not']):
+             print _('Removing:'), fname
+-            misc.unlink_f(fname)
++            try: # Ignore everything, unlink_f() doesn't.
++                os.unlink(fname)
++            except OSError, e:
++                if e.errno == errno.EISDIR:
++                    try:
++                        os.rmdir(fname)
++                    except:
++                        pass
++            except:
++                pass
+ 
+     def _fs_diff(self, base, extcmds):
+         def deal_with_file(fpath):

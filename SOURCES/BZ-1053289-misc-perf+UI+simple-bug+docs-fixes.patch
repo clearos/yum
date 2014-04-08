@@ -1,0 +1,1469 @@
+commit 1b14f27c1ff77ca3fb0af7dccc890a6c8bf36d42
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Wed Nov 6 14:42:59 2013 +0100
+
+    docs: Suggest "--" when using "-<pkg>" to exclude packages. BZ 1026598
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index e42bf49..2cbdf72 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -103,9 +103,13 @@ satisfied\&.  (See \fBSpecifying package names\fP for more information)
+ If no package matches the given package name(s), they are assumed to be a shell 
+ glob and any matches are then installed\&. If the name starts with @^ then it
+ is treated as an environment group (group install @^foo), an @ character and
+-it's treated as a group (plain group install)\&. If the name starts with
+-a - character, then a search is done within
+-the transaction and any matches are removed. If the name is a file, then install works
++it's treated as a group (plain group install)\&.
++
++If the name starts with a "-" character, then a search is done within the
++transaction and any matches are removed. Note that Yum options use the same
++syntax and it may be necessary to use "--" to resolve any possible conflicts.
++
++If the name is a file, then install works
+ like localinstall\&. If the name doesn't match a package, then package
+ "provides" are searched (e.g. "_sqlitecache.so()(64bit)") as are
+ filelists (Eg. "/usr/bin/yum"). Also note that for filelists, wildcards will
+commit d78b1258ec9fd8ed312c4fede9a68db1623bb124
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Mon Nov 11 08:58:52 2013 +0100
+
+    docs: exactarch option is removed.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 5d8578d..53cef2e 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -158,12 +158,6 @@ Can be disabled using --disableexcludes.
+ Command-line option: \fB\-x\fP
+ 
+ .IP
+-\fBexactarch\fR
+-Either `1' or `0'. Set to `1' to make yum update only update the architectures
+-of packages that you have installed. ie: with this enabled yum will not install
+-an i686 package to update an i386 package. Default is `1'.
+-
+-.IP
+ \fBinstallonlypkgs \fR
+ List of package provides that should only ever be installed, never updated.
+ Kernels in particular fall into this category. Defaults to kernel,
+commit d6378e152ad8751b5d135d7e8aba49e16f8a374a
+Author: James Antill <james@and.org>
+Date:   Mon Nov 18 15:57:53 2013 -0500
+
+    Add distupgrade command as alias for distro-sync, to be compat. with zypper.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 1530161..a542ade 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -506,7 +506,7 @@ class DistroSyncCommand(YumCommand):
+ 
+         :return: a list containing the names of this command
+         """
+-        return ['distribution-synchronization', 'distro-sync']
++        return ['distribution-synchronization', 'distro-sync', 'distupgrade']
+ 
+     def getUsage(self):
+         """Return a usage string for this command.
+commit aae263a57b9e1695d54d463df36f191f3facfb48
+Author: James Antill <james@and.org>
+Date:   Mon Nov 18 15:58:19 2013 -0500
+
+    Add upgrade_group_objects_upgrade config. so people can turn it off.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 53cef2e..b93ad32 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -270,6 +270,12 @@ packages for all groups).
+ Default is: compat
+ 
+ .IP
++\fBupgrade_group_objects_upgrade\fR
++Either `0' or `1'. Set this to `0' to disable the automatic running of
++"group upgrade" when running the "upgrade" command, and group_command is set to
++"objects". Default is `1' (perform the check).
++
++.IP
+ \fBinstallroot \fR
+ Specifies an alternative installroot, relative to which all packages will be
+ installed. 
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 6a6f1fc..6bd5962 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -5000,7 +5000,8 @@ much more problems).
+                     tx_return.extend(self.update(po=new))
+ 
+             # Upgrade the installed groups, as part of generic "yum upgrade"
+-            if self.conf.group_command == 'objects':
++            if (self.conf.group_command == 'objects' and
++                self.conf.upgrade_group_objects_upgrade):
+                 for ievgrp in self.igroups.environments:
+                     tx_return.extend(self._at_groupupgrade('@^' + ievgrp))
+                 for igrp in self.igroups.groups:
+diff --git a/yum/config.py b/yum/config.py
+index ecb8490..c43c41b 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -792,6 +792,7 @@ class YumConf(StartupConf):
+     group_package_types = ListOption(['mandatory', 'default'])
+     group_command = SelectionOption(__group_command_default__,
+                                     ('compat', 'objects', 'simple'))
++    upgrade_group_objects_upgrade = BoolOption(True)
+     
+     timeout = FloatOption(30.0) # FIXME: Should use variation of SecondsOption
+ 
+commit 944f42f65e8a2d4bf0928e85850bf81e2876e233
+Author: James Antill <james@and.org>
+Date:   Mon Nov 18 16:05:33 2013 -0500
+
+    Add autocheck_running_kernel config. so people can turn it off.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index b93ad32..6fae41d 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -273,7 +273,14 @@ Default is: compat
+ \fBupgrade_group_objects_upgrade\fR
+ Either `0' or `1'. Set this to `0' to disable the automatic running of
+ "group upgrade" when running the "upgrade" command, and group_command is set to
+-"objects". Default is `1' (perform the check).
++"objects". Default is `1' (perform the operation).
++
++.IP
++\fBautocheck_running_kernel\fR
++Either `0' or `1'. Set this to `0' to disable the automatic checking of the
++running kernel against updateinfo ("yum updateinfo check-running-kernel"), in
++the "check-update" and "updateinfo summary" commands.
++Default is `1' (perform the check).
+ 
+ .IP
+ \fBinstallroot \fR
+diff --git a/yumcommands.py b/yumcommands.py
+index a542ade..2b1c9c0 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -1609,7 +1609,8 @@ class CheckUpdateCommand(YumCommand):
+                 result = 100
+ 
+             # Add check_running_kernel call, if updateinfo is available.
+-            if updateinfo._repos_downloaded(base.repos.listEnabled()):
++            if (base.conf.autocheck_running_kernel and
++                updateinfo._repos_downloaded(base.repos.listEnabled())):
+                 def _msg(x):
+                     base.verbose_logger.info("%s", x)
+                 updateinfo._check_running_kernel(base, base.upinfo, _msg)
+@@ -3850,7 +3851,8 @@ class UpdateinfoCommand(YumCommand):
+             if maxsize < size:
+                 maxsize = size
+         if not maxsize:
+-            _upi._check_running_kernel(base, md_info, _msg)
++            if base.conf.autocheck_running_kernel:
++                _upi._check_running_kernel(base, md_info, _msg)
+             return
+ 
+         outT = {'newpackage' : 'New Package',
+@@ -3880,7 +3882,8 @@ class UpdateinfoCommand(YumCommand):
+                 for sn in sorted(sev_counts, key=_sev_sort_key):
+                     args = (maxsize, sev_counts[sn],sn or '?', outT['security'])
+                     print "        %*u %s %s notice(s)" % args
+-        _upi._check_running_kernel(base, md_info, _msg)
++        if base.conf.autocheck_running_kernel:
++            _upi._check_running_kernel(base, md_info, _msg)
+         self.show_pkg_info_done = {}
+ 
+     def _get_new_pkgs(self, md_info):
+commit ecf31eee67bd3c5668f8b244c086365ebc510c05
+Author: James Antill <james@and.org>
+Date:   Tue Nov 19 11:57:13 2013 -0500
+
+    Actually add the config. for autocheck_running_kernel.
+
+diff --git a/yum/config.py b/yum/config.py
+index c43c41b..45abfd6 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -898,6 +898,8 @@ class YumConf(StartupConf):
+ 
+     depsolve_loop_limit = PositiveIntOption(100, names_of_0=["<forever>"])
+ 
++    autocheck_running_kernel = BoolOption(True)
++
+     _reposlist = []
+ 
+     def dump(self):
+commit 977a79be0f79069febde1ad81d8c71d240d08605
+Author: James Antill <james@and.org>
+Date:   Tue Nov 19 14:28:03 2013 -0500
+
+    Add deltarpm_metadata_percentage config. so people can configure MD downloads.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 6fae41d..4e79298 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -420,6 +420,15 @@ Use `0' to turn off delta rpm processing. Local repositories (with file://
+ baseurl) have delta rpms turned off by default.
+ 
+ .IP
++\fBdeltarpm_metadata_percentage\fR
++When the relative size of deltarpm metadata vs pkgs is larger than this,
++deltarpm metadata is not downloaded from the repo.
++Default value is 100 (Deltarpm metadata must be smaller than the packages from
++the repo). Note that you can give values over 100, so 200 means that the
++metadata is required to be half the size of the packages.
++Use `0' to turn off this check, and always download metadata.
++
++.IP
+ \fBsslcacert \fR
+ Path to the directory containing the databases of the certificate authorities
+ yum should use to verify SSL certificates. Defaults to none - uses system
+@@ -1043,6 +1052,11 @@ Overrides the \fBdeltarpm_percentage\fR option from the [main] section
+ for this repository.
+ 
+ .IP
++\fBdeltarpm_metadata_percentage\fR
++Overrides the \fBdeltarpm_metadata_percentage\fR option from the [main] section
++for this repository.
++
++.IP
+ \fBsslcacert \fR
+ Overrides the \fBsslcacert\fR option from the [main] section for this
+ repository.
+diff --git a/yum/config.py b/yum/config.py
+index cdad4bc..b891f82 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -805,6 +805,7 @@ class YumConf(StartupConf):
+     max_connections = IntOption(0, range_min=0)
+     deltarpm = IntOption(2, range_min=-16, range_max=128)
+     deltarpm_percentage = IntOption(75, range_min=0, range_max=100)
++    deltarpm_metadata_percentage = IntOption(100, range_min=0)
+ 
+     http_caching = SelectionOption('all', ('none', 'packages', 'all'))
+     metadata_expire = SecondsOption(60 * 60 * 6) # Time in seconds (6h).
+@@ -977,7 +978,12 @@ class RepoConf(BaseConfig):
+     throttle = Inherit(YumConf.throttle)
+     timeout = Inherit(YumConf.timeout)
+     ip_resolve = Inherit(YumConf.ip_resolve)
++    #  This isn't inherited so that we can automatically disable file:// _only_
++    # repos. if they haven't set an explicit deltarpm_percentage for the repo.
+     deltarpm_percentage = IntOption(None, range_min=0, range_max=100)
++    #  Rely on the above config. to do automatic disabling, and thus. no hack
++    # needed here.
++    deltarpm_metadata_percentage = Inherit(YumConf.deltarpm_metadata_percentage)
+ 
+     http_caching = Inherit(YumConf.http_caching)
+     metadata_expire = Inherit(YumConf.metadata_expire)
+diff --git a/yum/drpm.py b/yum/drpm.py
+index 1fd7a11..42bf70e 100644
+--- a/yum/drpm.py
++++ b/yum/drpm.py
+@@ -168,8 +168,13 @@ class DeltaInfo:
+                 self.verbose_logger.info(_('No Presto metadata available for %s'), repo)
+                 continue
+             path = repo.cachedir +'/'+ os.path.basename(data.location[1])
+-            if not os.path.exists(path) and int(data.size) > reposize[repo]:
+-                self.verbose_logger.info(_('Not downloading Presto metadata for %s'), repo)
++            perc = repo.deltarpm_metadata_percentage
++            data_size = int(data.size) * (perc / 100.0)
++            if perc and not os.path.exists(path) and data_size > reposize[repo]:
++                msg = _('Not downloading deltainfo for %s, MD is %s and rpms are %s')
++                self.verbose_logger.info(msg, repo,
++                                         progress.format_number(data_size),
++                                         progress.format_number(reposize[repo]))
+                 continue
+ 
+             def failfunc(e, name=name, repo=repo):
+commit b70d74e732f360a0a31cfcb9174982fb65369c54
+Author: James Antill <james@and.org>
+Date:   Wed Nov 27 14:00:32 2013 -0500
+
+    Add check_config_file_age, so we can turn that off for rhsm repos. BZ 1035440.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 4e79298..da13dc8 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -290,6 +290,18 @@ installed.
+ Command-line option: \fB\-\-installroot\fP
+ 
+ .IP
++\fBconfig_file_path \fR
++Specifies the path to main the configuration file.
++Default is /etc/yum/yum.conf.
++
++.IP
++\fBcheck_config_file_age \fR
++Either `0' or `1'. Specifies whether yum should auto metadata expire repos. 
++that are older than any of the configuration files that led to them (usually 
++the yum.conf file and the foo.repo file).
++Default is `1' (perform the check).
++
++.IP
+ \fBdistroverpkg\fR
+ The package used by yum to determine the "version" of the distribution, this
+ sets $releasever for use in config. files. This
+diff --git a/yum/config.py b/yum/config.py
+index ea6c1ac..c38d574 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -901,6 +901,8 @@ class YumConf(StartupConf):
+ 
+     autocheck_running_kernel = BoolOption(True)
+ 
++    check_config_file_age = BoolOption(True)
++
+     _reposlist = []
+ 
+     def dump(self):
+@@ -1005,6 +1007,9 @@ class RepoConf(BaseConfig):
+     async = BoolOption(True)
+ 
+     ui_repoid_vars = Inherit(YumConf.ui_repoid_vars)
++
++    check_config_file_age = Inherit(YumConf.check_config_file_age)
++
+     
+ class VersionGroupConf(BaseConfig):
+     """Option definitions for version groups."""
+diff --git a/yum/yumRepo.py b/yum/yumRepo.py
+index 67bb7c9..35359e2 100644
+--- a/yum/yumRepo.py
++++ b/yum/yumRepo.py
+@@ -1170,6 +1170,9 @@ Insufficient space in download directory %s
+             elif cookie_info[8] > time.time():
+                 val = False
+ 
++            if not self.check_config_file_age:
++                return val
++
+             # make sure none of our config files for this repo are newer than
+             # us
+             if cookie_info[8] < int(self.repo_config_age):
+commit a88b3ee54bd6f3b7c6855e0595d443fa6a453798
+Author: James Antill <james@and.org>
+Date:   Sun Dec 1 19:41:18 2013 -0500
+
+    Better doc. comment for re_primary_filename().
+
+diff --git a/yum/misc.py b/yum/misc.py
+index b817cc0..f551102 100644
+--- a/yum/misc.py
++++ b/yum/misc.py
+@@ -134,8 +134,9 @@ def re_filename(s):
+ 
+ def re_primary_filename(filename):
+     """ Tests if a filename string, can be matched against just primary.
+-        Note that this can produce false negatives (but not false
+-        positives). Note that this is a superset of re_primary_dirname(). """
++        Note that this can produce false negatives (Eg. /b?n/zsh) but not false
++        positives (because the former is a perf hit, and the later is a
++        failure). Note that this is a superset of re_primary_dirname(). """
+     if re_primary_dirname(filename):
+         return True
+     if filename == '/usr/lib/sendmail':
+commit 32e2da9c3e068722f82ae346c761a55ac9d969c9
+Author: James Antill <james@and.org>
+Date:   Thu Dec 5 16:31:02 2013 -0500
+
+    Fix needTs check with repo-pkgs list/info.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 2b1c9c0..db1b9d3 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -3712,7 +3712,7 @@ class RepoPkgsCommand(YumCommand):
+         if len(extcmds) > 1:
+             cmd = extcmds[1]
+         if cmd in ('info', 'list'):
+-            return InfoCommand().cacheRequirement(base, cmd, extcmds[2:])
++            return InfoCommand().needTs(base, cmd, extcmds[2:])
+ 
+         return True
+ 
+commit 88a93e8de73066a796bbb698c5c6f59b66174448
+Author: James Antill <james@and.org>
+Date:   Thu Dec 5 16:36:54 2013 -0500
+
+    Add command variation aliases to check-update.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index db1b9d3..3412a60 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -1531,7 +1531,8 @@ class CheckUpdateCommand(YumCommand):
+ 
+         :return: a list containing the names of this command
+         """
+-        return ['check-update']
++        return ['check-update',  'check-updates',
++                'check-upgrade', 'check-upgrades']
+ 
+     def getUsage(self):
+         """Return a usage string for this command.
+commit ade4e34d1578ad4046b5efe3c3a97ca6bc1791f5
+Author: James Antill <james@and.org>
+Date:   Thu Dec 5 16:37:07 2013 -0500
+
+    Add check-update sub-command to repo-pkgs.
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index 0914765..dff88af 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -423,6 +423,9 @@ only shows packages from the given repository.
+ "repository\-packages <repo> info" - Works like the "yum info" command, but
+ only shows packages from the given repository.
+ 
++"repository\-packages <repo> check-update" - Works like the
++"yum check-update" command, but only shows packages from the given repository.
++
+ "repository\-packages <repo> install" - Install all of the packages in the
+ repository, basically the same as: yum install $(repoquery --repoid=<repo> -a).
+ Specific packages/wildcards can be specified.
+diff --git a/yumcommands.py b/yumcommands.py
+index 3412a60..b346128 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -1558,7 +1558,7 @@ class CheckUpdateCommand(YumCommand):
+         """
+         checkEnabledRepo(base)
+ 
+-    def doCommand(self, base, basecmd, extcmds):
++    def doCommand(self, base, basecmd, extcmds, repoid=None):
+         """Execute this command.
+ 
+         :param base: a :class:`yum.Yumbase` object
+@@ -1577,10 +1577,10 @@ class CheckUpdateCommand(YumCommand):
+         base.extcmds.insert(0, 'updates')
+         result = 0
+         if True:
+-            ypl = base.returnPkgLists(extcmds)
++            ypl = base.returnPkgLists(extcmds, repoid=repoid)
+             if (base.conf.obsoletes or
+                 base.verbose_logger.isEnabledFor(logginglevels.DEBUG_3)):
+-                typl = base.returnPkgLists(obscmds)
++                typl = base.returnPkgLists(obscmds, repoid=repoid)
+                 ypl.obsoletes = typl.obsoletes
+                 ypl.obsoletesTuples = typl.obsoletesTuples
+ 
+@@ -1606,7 +1606,7 @@ class CheckUpdateCommand(YumCommand):
+                 for obtup in sorted(ypl.obsoletesTuples,
+                                     key=operator.itemgetter(0)):
+                     base.updatesObsoletesList(obtup, 'obsoletes',
+-                                              columns=columns)
++                                              columns=columns, repoid=repoid)
+                 result = 100
+ 
+             # Add check_running_kernel call, if updateinfo is available.
+@@ -3516,6 +3516,9 @@ class RepoPkgsCommand(YumCommand):
+                  'remove-or-distribution-synchronization' : 'remove-or-sync',
+                  'upgrade' : 'update', # Hack, but meh.
+                  'upgrade-to' : 'update-to', # Hack, but meh.
++                 'check-upgrade' : 'check-update', # Hack, but meh.
++                 'check-upgrades' : 'check-update', # Hack, but meh.
++                 'check-updates' : 'check-update', # Hack, but meh.
+                  }
+         cmd = remap.get(cmd, cmd)
+ 
+@@ -3524,6 +3527,8 @@ class RepoPkgsCommand(YumCommand):
+             return ListCommand().doCommand(base, cmd, args, repoid=repoid)
+         elif cmd == 'info':
+             return InfoCommand().doCommand(base, cmd, args, repoid=repoid)
++        elif cmd == 'check-update':
++            return CheckUpdateCommand().doCommand(base, cmd, args,repoid=repoid)
+ 
+         elif cmd == 'install': # install is simpler version of installPkgs...
+             for arg in args:
+@@ -3730,6 +3735,9 @@ class RepoPkgsCommand(YumCommand):
+             cmd = extcmds[1]
+         if cmd in ('info', 'list'):
+             return InfoCommand().cacheRequirement(base, cmd, extcmds[2:])
++        if cmd in ('check-update', 'check-upgrade',
++                   'check-updates', 'check-upgrades'):
++            return CheckUpdateCommand().cacheRequirement(base, cmd, extcmds[2:])
+         return 'write'
+ 
+ # Using this a lot, so make it easier...
+commit 84876b27c49056a8d86112020a9ec4ec7a13e852
+Author: James Antill <james@and.org>
+Date:   Fri Dec 6 11:04:31 2013 -0500
+
+     Fix cacheReq manipulation. BZ 1039028.
+    
+     Only look at enabled repos. for cacheReq cookie comparisons. BZ 1039028.
+    
+     Move all the cacheReq repo. setting into a function.
+    
+     Use the function everywhere so we don't overwrite the manipulated value with
+    the generic value.
+
+diff --git a/cli.py b/cli.py
+index 7f6643f..180ba99 100755
+--- a/cli.py
++++ b/cli.py
+@@ -390,6 +390,13 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                                   self.basecmd, sys.argv[0])
+             raise CliError
+     
++        self._set_repos_cache_req()
++
++        self.yum_cli_commands[self.basecmd].doCheck(self, self.basecmd, self.extcmds)
++
++    def _set_repos_cache_req(self, warning=True):
++        """ Set the cacheReq attribute from the commands to the repos. """
++
+         cmd = self.yum_cli_commands[self.basecmd]
+         cacheReq = 'write'
+         if hasattr(cmd, 'cacheRequirement'):
+@@ -404,7 +411,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+         # they are _really_ old.
+         ts_min = None
+         ts_max = None
+-        for repo in self.repos.sort():
++        for repo in self.repos.listEnabled():
+             if not os.path.exists(repo.metadata_cookie):
+                 ts_min = None
+                 break
+@@ -428,14 +435,12 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+ 
+         if not ts_min:
+             cacheReq = 'write'
+-        elif (time.time() - ts_max) > (60 * 60 * 24 * 14):
++        elif warning and (time.time() - ts_max) > (60 * 60 * 24 * 14):
+             self.logger.warning(_("Repodata is over 2 weeks old. Install yum-cron? Or run: yum makecache fast"))
+ 
+         for repo in self.repos.sort():
+             repo._metadata_cache_req = cacheReq
+ 
+-        self.yum_cli_commands[self.basecmd].doCheck(self, self.basecmd, self.extcmds)
+-
+     def _shell_history_write(self):
+         if not hasattr(self, '_shell_history_cmds'):
+             return
+@@ -560,11 +565,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+ 
+         #  This should already have been done at doCheck() time, but just in
+         # case repos. got added or something do it again.
+-        cacheReq = 'write'
+-        if hasattr(cmd, 'cacheRequirement'):
+-            cacheReq = cmd.cacheRequirement(self, self.basecmd, self.extcmds)
+-        for repo in self.repos.sort():
+-            repo._metadata_cache_req = cacheReq
++        self._set_repos_cache_req(warning=False)
+ 
+         return self.yum_cli_commands[self.basecmd].doCommand(self, self.basecmd, self.extcmds)
+ 
+commit 8c4c81b8f958ffaf6f3cf710225eee48426ce767
+Author: James Antill <james@and.org>
+Date:   Fri Dec 6 11:11:05 2013 -0500
+
+    Add comment about magic float timestamp compat. problem.
+
+diff --git a/yum/repoMDObject.py b/yum/repoMDObject.py
+index 97e6797..c2a349e 100755
+--- a/yum/repoMDObject.py
++++ b/yum/repoMDObject.py
+@@ -172,6 +172,9 @@ class RepoMD:
+                         thisdata = old
+                     self.repoData[thisdata.type] = thisdata
+                     try:
++                        # NOTE: This will fail on float timestamps, this is
++                        # required for compatability. Fix is to not generate
++                        # float timestamps in repomd.xml.
+                         nts = int(thisdata.timestamp)
+                         if nts > self.timestamp: # max() not in old python
+                             self.timestamp = nts
+commit 833be09639371c9e0c88bc125e40ef682bbc4a30
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Mon Dec 9 17:58:25 2013 +0100
+
+    Align the time formatting in the "Total" output with urlgrabber.progress
+
+diff --git a/output.py b/output.py
+index e42702e..041910c 100755
+--- a/output.py
++++ b/output.py
+@@ -1837,7 +1837,7 @@ to exit.
+         if dl_time <= 0: # This stops divide by zero, among other problems
+             dl_time = 0.01
+         ui_size = tl.add(' | %5sB' % self.format_number(remote_size))
+-        ui_time = tl.add(' %9s' % self.format_time(dl_time))
++        ui_time = tl.add('  %s' % self.format_time(dl_time, tl._llen > 80))
+         ui_end  = tl.add(' ' * 5)
+         ui_bs   = tl.add(' %5sB/s' % self.format_number(remote_size / dl_time))
+         msg = "%s%s%s%s%s" % (utf8_width_fill(_("Total"), tl.rest(), tl.rest()),
+commit e1db5d6a94dee861d1fa0552277bc03f037c6e3a
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Tue Dec 10 08:47:48 2013 +0100
+
+    yum-cron: stderr/email: no output if no messages
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index dd0a4c6..f53fbfb 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -685,6 +685,9 @@ class EmailEmitter(UpdateEmitter):
+         """Combine the stored messages that have been stored into a
+         single email message, and send this message.
+         """
++        # Don't send empty emails
++        if not self.output:
++            return
+         # Build up the email to be sent
+         msg = MIMEText(''.join(self.output))
+         msg['Subject'] = self.subject
+@@ -708,6 +711,9 @@ class StdIOEmitter(UpdateEmitter):
+         """Combine the stored messages that have been stored into a
+         single email message, and send this message to standard output.
+         """
++        # Don't print blank lines
++        if not self.output:
++            return
+         print "".join(self.output)
+ 
+ 
+commit 78c4435ddbb00d11bf42040e8afb34ee1cf107b5
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Tue Dec 10 10:02:29 2013 +0100
+
+    Fix a gettext string (typo).
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index f212884..caafae4 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -1929,7 +1929,7 @@ much more problems).
+                     # maybe a file log here, too
+                     # but raising an exception is not going to do any good
+                     self.logger.critical(_('%s was supposed to be installed' \
+-                                           ' but is not!' % txmbr.po))
++                                           ' but is not!') % txmbr.po)
+                     # Note: Get Panu to do te.Failed() so we don't have to
+                     txmbr.output_state = TS_FAILED
+                     count = _call_txmbr_cb(txmbr, count)
+commit cc0d8d11c90515ead4f3e1018e0f82b2edbc8274
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Tue Dec 10 16:15:57 2013 +0100
+
+    completion-helper: No pkg list when len(prefix) < 1. BZ 1040033
+
+diff --git a/etc/yum.bash b/etc/yum.bash
+index 40541af..aae8992 100644
+--- a/etc/yum.bash
++++ b/etc/yum.bash
+@@ -19,6 +19,8 @@ _yum_list()
+ {
+     # Fail fast for things that look like paths or options.
+     [[ $2 == */* || $2 == [.~-]* ]] && return
++    # Listing all packages takes way too long
++    [[ ${#2} -lt 1 ]] && return
+     _yum_helper list "$@"
+ }
+ 
+commit 7479c24ff5196f740614338247a7c513fe56486b
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Fri Dec 13 09:01:14 2013 +0100
+
+    completion-helper: accept empty prefix when listing installed pkgs
+
+diff --git a/etc/yum.bash b/etc/yum.bash
+index aae8992..16d096c 100644
+--- a/etc/yum.bash
++++ b/etc/yum.bash
+@@ -19,8 +19,8 @@ _yum_list()
+ {
+     # Fail fast for things that look like paths or options.
+     [[ $2 == */* || $2 == [.~-]* ]] && return
+-    # Listing all packages takes way too long
+-    [[ ${#2} -lt 1 ]] && return
++    # Listing all available packages takes way too long
++    [[ $1 != "installed" && ${#2} -lt 1 ]] && return
+     _yum_helper list "$@"
+ }
+ 
+commit 05846f0ce0ec09e6030f18f6e508a75347f529c0
+Author: James Antill <james@and.org>
+Date:   Mon Nov 18 17:41:17 2013 -0500
+
+    Copy/Paste install for group upgrade lists into yum-cron output. BZ 1031374.
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 79c1907..dd0a4c6 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -426,10 +426,31 @@ class UpdateEmitter(object):
+ 
+             return a_wid
+ 
+-        
++        ninstalled = self.tsInfo.installed
++        ginstalled = {}
++        if self.conf.group_command == 'objects' and ninstalled:
++            # Show new pkgs. that are installed via. a group.
++            ninstalled = []
++            for txmbr in self.tsInfo.installed:
++                if not hasattr(txmbr, '_ugroup_member'):
++                    ninstalled.append(txmbr)
++                    continue
++                if txmbr._ugroup_member not in ginstalled:
++                    ginstalled[txmbr._ugroup_member] = []
++                ginstalled[txmbr._ugroup_member].append(txmbr)
++
++        for grp in sorted(ginstalled, key=lambda x: x.ui_name):
++            action = _('Installing for group upgrade "%s"') % grp.ui_name
++            pkglist = ginstalled[grp]
++
++            lines = []
++            for txmbr in pkglist:
++                a_wid = _add_line(lines, data, a_wid, txmbr.po, txmbr.obsoletes)
++
++            pkglist_lines.append((action, lines))        
+ 
+         # Iterate through the different groups of packages
+-        for (action, pkglist) in [(_('Installing'), tsInfo.installed),
++        for (action, pkglist) in [(_('Installing'), ninstalled),
+                             (_('Updating'), tsInfo.updated),
+                             (_('Removing'), tsInfo.removed),
+                             (_('Reinstalling'), tsInfo.reinstalled),
+commit d0bba60912ec09dd6bbbc1dfbf2b27688bec3e68
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Fri Dec 13 09:39:36 2013 +0100
+
+    yum-cron: Inherit YumOutput. BZ 1040109
+    
+    When yum-cron can use bits from output.py, we don't have to
+    duplicate about 450 lines of code.
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index f53fbfb..5661fbb 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -21,6 +21,7 @@ from yum.misc import setup_locale
+ 
+ # FIXME: is it really sane to use this from here?
+ sys.path.append('/usr/share/yum-cli')
++from output import YumOutput
+ import callback
+ 
+ default_config_file = '/etc/yum/yum-cron.conf'
+@@ -155,447 +156,9 @@ class UpdateEmitter(object):
+         """
+         pass
+ 
+-    def _format_number(self, number, SI=0, space=' '):
+-        """Return a human-readable metric-like string representation
+-        of a number.
+-
+-        :param number: the number to be converted to a human-readable form
+-        :param SI: If is 0, this function will use the convention
+-           that 1 kilobyte = 1024 bytes, otherwise, the convention
+-           that 1 kilobyte = 1000 bytes will be used
+-        :param space: string that will be placed between the number
+-           and the SI prefix
+-        :return: a human-readable metric-like string representation of
+-           *number*
+-        """
+-        symbols = [ ' ', # (none)
+-                    'k', # kilo
+-                    'M', # mega
+-                    'G', # giga
+-                    'T', # tera
+-                    'P', # peta
+-                    'E', # exa
+-                    'Z', # zetta
+-                    'Y'] # yotta
+-    
+-        if SI: step = 1000.0
+-        else: step = 1024.0
+-    
+-        thresh = 999
+-        depth = 0
+-        max_depth = len(symbols) - 1
+-    
+-        # we want numbers between 0 and thresh, but don't exceed the length
+-        # of our list.  In that event, the formatting will be screwed up,
+-        # but it'll still show the right number.
+-        while number > thresh and depth < max_depth:
+-            depth  = depth + 1
+-            number = number / step
+-    
+-        if type(number) == type(1) or type(number) == type(1L):
+-            format = '%i%s%s'
+-        elif number < 9.95:
+-            # must use 9.95 for proper sizing.  For example, 9.99 will be
+-            # rounded to 10.0 with the .1f format string (which is too long)
+-            format = '%.1f%s%s'
+-        else:
+-            format = '%.0f%s%s'
+-    
+-        return(format % (float(number or 0), space, symbols[depth]))
+-
+-    def _fmtColumns(self, columns, msg=u'', end=u'', text_width=utf8_width):
+-        """Return a row of data formatted into a string for output.
+-        Items can overflow their columns. 
+-
+-        :param columns: a list of tuples containing the data to
+-           output.  Each tuple contains first the item to be output,
+-           then the amount of space allocated for the column, and then
+-           optionally a type of highlighting for the item
+-        :param msg: a string to begin the line of output with
+-        :param end: a string to end the line of output with
+-        :param text_width: a function to find the width of the items
+-           in the columns.  This defaults to utf8 but can be changed
+-           to len() if you know it'll be fine
+-        :return: a row of data formatted into a string for output
+-        """
+-        total_width = len(msg)
+-        data = []
+-        for col_data in columns[:-1]:
+-            (val, width) = col_data
+-
+-            if not width: # Don't count this column, invisible text
+-                msg += u"%s"
+-                data.append(val)
+-                continue
+-
+-            (align, width) = self._fmt_column_align_width(width)
+-            val_width = text_width(val)
+-            if val_width <= width:
+-                #  Don't use utf8_width_fill() because it sucks performance
+-                # wise for 1,000s of rows. Also allows us to use len(), when
+-                # we can.
+-                msg += u"%s%s "
+-                if (align == u'-'):
+-                    data.extend([val, " " * (width - val_width)])
+-                else:
+-                    data.extend([" " * (width - val_width), val])
+-            else:
+-                msg += u"%s\n" + " " * (total_width + width + 1)
+-                data.append(val)
+-            total_width += width
+-            total_width += 1
+-        (val, width) = columns[-1]
+-        (align, width) = self._fmt_column_align_width(width)
+-        val = utf8_width_fill(val, width, left=(align == u'-'))
+-        msg += u"%%s%s" % end
+-        data.append(val)
+-        return msg % tuple(data)
+-
+-    def _calcColumns(self, data, total_width, columns=None, remainder_column=0, indent=''):
+-        """Dynamically calculate the widths of the columns that the
+-        fields in data should be placed into for output.
+-        
+-        :param data: a list of dictionaries that represent the data to
+-           be output.  Each dictionary in the list corresponds to annn
+-           column of output. The keys of the dictionary are the
+-           lengths of the items to be output, and the value associated
+-           with a key is the number of items of that length.
+-        :param total_width: the total width of the output.
+-        :param columns: a list containing the minimum amount of space
+-           that must be allocated for each row. This can be used to
+-           ensure that there is space available in a column if, for
+-           example, the actual lengths of the items being output
+-           cannot be given in *data*
+-        :param remainder_column: number of the column to receive a few
+-           extra spaces that may remain after other allocation has
+-           taken place
+-        :param indent: string that will be prefixed to a line of
+-           output to create e.g. an indent
+-        :return: a list of the widths of the columns that the fields
+-           in data should be placed into for output
+-        """
+-        if total_width is None:
+-            total_width = self.term.columns
+-
+-        cols = len(data)
+-        # Convert the data to ascending list of tuples, (field_length, pkgs)
+-        pdata = data
+-        data  = [None] * cols # Don't modify the passed in data
+-        for d in range(0, cols):
+-            data[d] = sorted(pdata[d].items())
+-
+-        #  We start allocating 1 char to everything but the last column, and a
+-        # space between each (again, except for the last column). Because
+-        # at worst we are better with:
+-        # |one two three|
+-        # | four        |
+-        # ...than:
+-        # |one two three|
+-        # |            f|
+-        # |our          |
+-        # ...the later being what we get if we pre-allocate the last column, and
+-        # thus. the space, due to "three" overflowing it's column by 2 chars.
+-        if columns is None:
+-            columns = [1] * (cols - 1)
+-            columns.append(0)
+-
+-        total_width -= (sum(columns) + (cols - 1) +
+-                        utf8_width(indent))
+-        if not columns[-1]:
+-            total_width += 1
+-        while total_width > 0:
+-            # Find which field all the spaces left will help best
+-            helps = 0
+-            val   = 0
+-            for d in xrange(0, cols):
+-                thelps = self._calc_columns_spaces_helps(columns[d], data[d],
+-                                                         total_width)
+-                if not thelps:
+-                    continue
+-                #  We prefer to overflow: the last column, and then earlier
+-                # columns. This is so that in the best case (just overflow the
+-                # last) ... grep still "works", and then we make it prettier.
+-                if helps and (d == (cols - 1)) and (thelps / 2) < helps:
+-                    continue
+-                if thelps < helps:
+-                    continue
+-                helps = thelps
+-                val   = d
+-
+-            #  If we found a column to expand, move up to the next level with
+-            # that column and start again with any remaining space.
+-            if helps:
+-                diff = data[val].pop(0)[0] - columns[val]
+-                if not columns[val] and (val == (cols - 1)):
+-                    #  If we are going from 0 => N on the last column, take 1
+-                    # for the space before the column.
+-                    total_width  -= 1
+-                columns[val] += diff
+-                total_width  -= diff
+-                continue
+-
+-            overflowed_columns = 0
+-            for d in xrange(0, cols):
+-                if not data[d]:
+-                    continue
+-                overflowed_columns += 1
+-            if overflowed_columns:
+-                #  Split the remaining spaces among each overflowed column
+-                # equally
+-                norm = total_width / overflowed_columns
+-                for d in xrange(0, cols):
+-                    if not data[d]:
+-                        continue
+-                    columns[d] += norm
+-                    total_width -= norm
+-
+-            #  Split the remaining spaces among each column equally, except the
+-            # last one. And put the rest into the remainder column
+-            cols -= 1
+-            norm = total_width / cols
+-            for d in xrange(0, cols):
+-                columns[d] += norm
+-            columns[remainder_column] += total_width - (cols * norm)
+-            total_width = 0
+-
+-        return columns
+-
+-    @staticmethod
+-    def _fmt_column_align_width(width):
+-        if width < 0:
+-            return (u"-", -width)
+-        return (u"", width)
+-
+-    @staticmethod
+-    def _calc_columns_spaces_helps(current, data_tups, left):
+-        """ Spaces left on the current field will help how many pkgs? """
+-        ret = 0
+-        for tup in data_tups:
+-            if left < (tup[0] - current):
+-                break
+-            ret += tup[1]
+-        return ret
+-
+     def _formatTransaction(self, tsInfo):
+-        """Return a string containing a human-readable formatted
+-        summary of the transaction.
+-        
+-        :param tsInfo: :class:`yum.transactioninfo.TransactionData`
+-           instance that contains information about the transaction
+-        :return: a string that contains a formatted summary of the
+-           transaction
+-           """
+-        # Sort the packages in the transaction into different lists,
+-        # e.g. installed, updated etc
+-        tsInfo.makelists(True, True)
+-
+-        # For each package list, pkglist_lines will contain a tuple
+-        # that contains the name of the list, and a list of tuples
+-        # with information about each package in the list
+-        pkglist_lines = []
+-        data  = {'n' : {}, 'v' : {}, 'r' : {}}
+-        a_wid = 0 # Arch can't get "that big" ... so always use the max.
+-
+-
+-        def _add_line(lines, data, a_wid, po, obsoletes=[]):
+-            # Create a tuple of strings that contain the name, arch,
+-            # version, repository, size, and obsoletes of the package
+-            # given in po.  Then, append this tuple to lines.  The
+-            # strings are formatted so that the tuple can be easily
+-            # joined together for output.
+-
+-            
+-            (n,a,e,v,r) = po.pkgtup
+-            
+-            # Retrieve the version, repo id, and size of the package
+-            # in human-readable form
+-            evr = po.printVer()
+-            repoid = po.ui_from_repo
+-            size = self._format_number(float(po.size))
+-
+-            if a is None: # gpgkeys are weird
+-                a = 'noarch'
+-
+-            lines.append((n, a, evr, repoid, size, obsoletes))
+-            #  Create a dict of field_length => number of packages, for
+-            # each field.
+-            for (d, v) in (("n",len(n)), ("v",len(evr)), ("r",len(repoid))):
+-                data[d].setdefault(v, 0)
+-                data[d][v] += 1
+-            a_wid = max(a_wid, len(a))
+-
+-            return a_wid
+-
+-        ninstalled = self.tsInfo.installed
+-        ginstalled = {}
+-        if self.conf.group_command == 'objects' and ninstalled:
+-            # Show new pkgs. that are installed via. a group.
+-            ninstalled = []
+-            for txmbr in self.tsInfo.installed:
+-                if not hasattr(txmbr, '_ugroup_member'):
+-                    ninstalled.append(txmbr)
+-                    continue
+-                if txmbr._ugroup_member not in ginstalled:
+-                    ginstalled[txmbr._ugroup_member] = []
+-                ginstalled[txmbr._ugroup_member].append(txmbr)
+-
+-        for grp in sorted(ginstalled, key=lambda x: x.ui_name):
+-            action = _('Installing for group upgrade "%s"') % grp.ui_name
+-            pkglist = ginstalled[grp]
+-
+-            lines = []
+-            for txmbr in pkglist:
+-                a_wid = _add_line(lines, data, a_wid, txmbr.po, txmbr.obsoletes)
+-
+-            pkglist_lines.append((action, lines))        
+-
+-        # Iterate through the different groups of packages
+-        for (action, pkglist) in [(_('Installing'), ninstalled),
+-                            (_('Updating'), tsInfo.updated),
+-                            (_('Removing'), tsInfo.removed),
+-                            (_('Reinstalling'), tsInfo.reinstalled),
+-                            (_('Downgrading'), tsInfo.downgraded),
+-                            (_('Installing for dependencies'), tsInfo.depinstalled),
+-                            (_('Updating for dependencies'), tsInfo.depupdated),
+-                            (_('Removing for dependencies'), tsInfo.depremoved)]:
+-            # Create a list to hold the tuples of strings for each package
+-            lines = []
+-
+-            # Append the tuple for each package to lines, and update a_wid
+-            for txmbr in pkglist:
+-                a_wid = _add_line(lines, data, a_wid, txmbr.po, txmbr.obsoletes)
+-
+-            # Append the lines instance for this package list to pkglist_lines
+-            pkglist_lines.append((action, lines))
+-
+-        # # Iterate through other package lists
+-        # for (action, pkglist) in [(_('Skipped (dependency problems)'),
+-        #                            self.skipped_packages),
+-        #                           (_('Not installed'), self._not_found_i.values()),
+-        #                           (_('Not available'), self._not_found_a.values())]:
+-        #     lines = []
+-        #     for po in pkglist:
+-        #         a_wid = _add_line(lines, data, a_wid, po)
+-
+-        #     pkglist_lines.append((action, lines))
+-
+-        if not data['n']:
+-            return u''
+-        else:
+-            # Change data to a list with the correct number of
+-            # columns, in the correct order
+-            data    = [data['n'],    {}, data['v'], data['r'], {}]
+-
+-            
+-             
+-            # Calculate the space needed for each column
+-            columns = [1,         a_wid,         1,         1,  5]
+-
+-            columns = self._calcColumns(data, self.opts.output_width,
+-                                        columns, remainder_column = 2, indent="  ")
+-
+-            (n_wid, a_wid, v_wid, r_wid, s_wid) = columns
+-            assert s_wid == 5
+-
+-            # out will contain the output as a list of strings, that
+-            # can be later joined together
+-            out = [u"""
+-%s
+-%s
+-%s
+-""" % ('=' * self.opts.output_width,
+-       self._fmtColumns(((_('Package'), -n_wid), (_('Arch'), -a_wid),
+-                        (_('Version'), -v_wid), (_('Repository'), -r_wid),
+-                        (_('Size'), s_wid)), u" "),
+-       '=' * self.opts.output_width)]
+-
+-        # Add output for each package list in pkglist_lines
+-        for (action, lines) in pkglist_lines:
+-            #If the package list is empty, skip it
+-            if not lines:
+-                continue
+-
+-            # Add the name of the package list
+-            totalmsg = u"%s:\n" % action
+-            # Add a line of output about an individual package
+-            for (n, a, evr, repoid, size, obsoletes) in lines:
+-                columns = ((n,   -n_wid), (a,      -a_wid),
+-                           (evr, -v_wid), (repoid, -r_wid), (size, s_wid))
+-                msg = self._fmtColumns(columns, u" ", u"\n")
+-                for obspo in sorted(obsoletes):
+-                    appended = _('     replacing  %s.%s %s\n')
+-                    appended %= (obspo.name,
+-                                 obspo.arch, obspo.printVer())
+-                    msg = msg+appended
+-                totalmsg = totalmsg + msg
+-
+-            # Append the line about the individual package to out
+-            out.append(totalmsg)
+-
+-        # Add a summary of the transaction
+-        out.append(_("""
+-Transaction Summary
+-%s
+-""") % ('=' * self.opts.output_width))
+-        summary_data =  (
+-            (_('Install'), len(tsInfo.installed),
+-             len(tsInfo.depinstalled)),
+-            (_('Upgrade'), len(tsInfo.updated),
+-             len(tsInfo.depupdated)),
+-            (_('Remove'), len(tsInfo.removed),
+-             len(tsInfo.depremoved)),
+-            (_('Reinstall'), len(tsInfo.reinstalled), 0),
+-            (_('Downgrade'), len(tsInfo.downgraded), 0),
+-            # (_('Skipped (dependency problems)'), len(self.skipped_packages), 0),
+-            # (_('Not installed'), len(self._not_found_i.values()), 0),
+-            # (_('Not available'), len(self._not_found_a.values()), 0),
+-        )
+-        max_msg_action   = 0
+-        max_msg_count    = 0
+-        max_msg_pkgs     = 0
+-        max_msg_depcount = 0
+-        for action, count, depcount in summary_data:
+-            if not count and not depcount:
+-                continue
+-
+-            msg_pkgs = P_('Package', 'Packages', count)
+-            len_msg_action   = utf8_width(action)
+-            len_msg_count    = utf8_width(str(count))
+-            len_msg_pkgs     = utf8_width(msg_pkgs)
+-
+-            if depcount:
+-                len_msg_depcount = utf8_width(str(depcount))
+-            else:
+-                len_msg_depcount = 0
+-
+-            max_msg_action   = max(len_msg_action,   max_msg_action)
+-            max_msg_count    = max(len_msg_count,    max_msg_count)
+-            max_msg_pkgs     = max(len_msg_pkgs,     max_msg_pkgs)
+-            max_msg_depcount = max(len_msg_depcount, max_msg_depcount)
+-
+-        for action, count, depcount in summary_data:
+-            msg_pkgs = P_('Package', 'Packages', count)
+-            if depcount:
+-                msg_deppkgs = P_('Dependent package', 'Dependent packages',
+-                                 depcount)
+-                if count:
+-                    msg = '%s  %*d %s (+%*d %s)\n'
+-                    out.append(msg % (utf8_width_fill(action, max_msg_action),
+-                                      max_msg_count, count,
+-                                      utf8_width_fill(msg_pkgs, max_msg_pkgs),
+-                                      max_msg_depcount, depcount, msg_deppkgs))
+-                else:
+-                    msg = '%s  %*s %s ( %*d %s)\n'
+-                    out.append(msg % (utf8_width_fill(action, max_msg_action),
+-                                      max_msg_count, '',
+-                                      utf8_width_fill('', max_msg_pkgs),
+-                                      max_msg_depcount, depcount, msg_deppkgs))
+-            elif count:
+-                msg = '%s  %*d %s\n'
+-                out.append(msg % (utf8_width_fill(action, max_msg_action),
+-                                  max_msg_count, count, msg_pkgs))
+-
+-        return ''.join(out)
++        assert self.opts._base.tsInfo == tsInfo
++        return self.opts._base.listTransaction()
+ 
+ 
+ class EmailEmitter(UpdateEmitter):
+@@ -738,7 +301,7 @@ class YumCronConfig(BaseConfig):
+     group_package_types = ListOption(['mandatory', 'default'])
+ 
+ 
+-class YumCronBase(yum.YumBase):
++class YumCronBase(yum.YumBase, YumOutput):
+     """Main class to check for and apply the updates."""
+ 
+     def __init__(self, config_file_name = None):
+@@ -748,9 +311,13 @@ class YumCronBase(yum.YumBase):
+            config file to use.
+         """
+         yum.YumBase.__init__(self)
++        YumOutput.__init__(self)
+ 
+         # Read the config file
+         self.readConfigFile(config_file_name)
++        self.term.reinit(color='never')
++        self.term.columns = self.opts.output_width
++        self.opts._base = self
+ 
+ 
+         # Create the emitters, and add them to the list
+commit 1f4b4a800516ec56215a4bed36293f62b77e1239
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Fri Dec 13 10:11:34 2013 +0100
+
+    yum-cron: remove _formatTransaction()
+    
+    By moving the formatting out of emitters, we loose a bit of flexibility,
+    but at least run the formatting only once, and don't have to pass YumBase
+    references to emitters.
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 5661fbb..a1fd10b 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -37,25 +37,23 @@ class UpdateEmitter(object):
+         self.opts  = opts
+         self.output = []
+ 
+-    def updatesAvailable(self, tsInfo):
++    def updatesAvailable(self, summary):
+         """Appends a message to the output list stating that there are
+         updates available.
+ 
+-        :param tsInfo: A :class:`yum.transactioninfo.TransactionData`
+-           instance that contains information about the transaction.
++        :param summary: A human-readable summary of the transaction.
+         """
+         self.output.append('The following updates are available on %s:' % self.opts.system_name)
+-        self.output.append(self._formatTransaction(tsInfo))
++        self.output.append(summary)
+ 
+-    def updatesDownloading(self, tsInfo):
++    def updatesDownloading(self, summary):
+         """Append a message to the output list stating that
+         downloading updates has started.
+ 
+-        :param tsInfo: A :class:`yum.transactioninfo.TransactionData`
+-           instance that contains information about the transaction.
++        :param summary: A human-readable summary of the transaction.
+         """
+         self.output.append('The following updates will be downloaded on %s:' % self.opts.system_name)
+-        self.output.append(self._formatTransaction(tsInfo))
++        self.output.append(summary)
+ 
+     def updatesDownloaded(self):
+         """Append a message to the output list stating that updates
+@@ -63,15 +61,14 @@ class UpdateEmitter(object):
+         """
+         self.output.append("Updates downloaded successfully.")
+ 
+-    def updatesInstalling(self, tsInfo):
++    def updatesInstalling(self, summary):
+         """Append a message to the output list stating that
+         installing updates has started.
+ 
+-        :param tsInfo: A :class:`yum.transactioninfo.TransactionData`
+-           instance that contains information about the transaction.
++        :param summary: A human-readable summary of the transaction.
+         """
+         self.output.append('The following updates will be applied on %s:' % self.opts.system_name)
+-        self.output.append(self._formatTransaction(tsInfo))
++        self.output.append(summary)
+ 
+     def updatesInstalled(self):
+         """Append a message to the output list stating that updates
+@@ -156,10 +153,6 @@ class UpdateEmitter(object):
+         """
+         pass
+ 
+-    def _formatTransaction(self, tsInfo):
+-        assert self.opts._base.tsInfo == tsInfo
+-        return self.opts._base.listTransaction()
+-
+ 
+ class EmailEmitter(UpdateEmitter):
+     """Emitter class to send messages via email."""
+@@ -168,14 +161,13 @@ class EmailEmitter(UpdateEmitter):
+         super(EmailEmitter, self).__init__(opts)        
+         self.subject = ""
+ 
+-    def updatesAvailable(self, tsInfo):
++    def updatesAvailable(self, summary):
+         """Appends a message to the output list stating that there are
+         updates available, and set an appropriate subject line.
+ 
+-        :param tsInfo: A :class:`yum.transactioninfo.TransactionData`
+-           instance that contains information about the transaction.
++        :param summary: A human-readable summary of the transaction.
+         """
+-        super(EmailEmitter, self).updatesAvailable(tsInfo)
++        super(EmailEmitter, self).updatesAvailable(summary)
+         self.subject = "Yum: Updates Available on %s" % self.opts.system_name
+ 
+     def updatesDownloaded(self):
+@@ -317,7 +309,6 @@ class YumCronBase(yum.YumBase, YumOutput):
+         self.readConfigFile(config_file_name)
+         self.term.reinit(color='never')
+         self.term.columns = self.opts.output_width
+-        self.opts._base = self
+ 
+ 
+         # Create the emitters, and add them to the list
+@@ -655,11 +646,13 @@ class YumCronBase(yum.YumBase, YumOutput):
+ 
+     def emitAvailable(self):
+         """Emit a notice stating whether updates are available."""
+-        map(lambda x: x.updatesAvailable(self.tsInfo), self.emitters)
++        summary = self.listTransaction()
++        map(lambda x: x.updatesAvailable(summary), self.emitters)
+ 
+     def emitDownloading(self):
+         """Emit a notice stating that updates are downloading."""
+-        map(lambda x: x.updatesDownloading(self.tsInfo), self.emitters)
++        summary = self.listTransaction()
++        map(lambda x: x.updatesDownloading(summary), self.emitters)
+ 
+     def emitDownloaded(self):
+         """Emit a notice stating that updates have downloaded."""
+@@ -669,7 +662,8 @@ class YumCronBase(yum.YumBase, YumOutput):
+         """Emit a notice stating that automatic updates are about to
+         be applied.
+         """
+-        map(lambda x: x.updatesInstalling(self.tsInfo), self.emitters)
++        summary = self.listTransaction()
++        map(lambda x: x.updatesInstalling(summary), self.emitters)
+ 
+     def emitInstalled(self):
+         """Emit a notice stating that automatic updates have been applied."""
+commit f8579cb9c08f5ea962f555d1610bb58449139ed2
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Mon Dec 23 15:29:51 2013 +0100
+
+    Skip unavailable repos. BZ 1046076
+    
+    By populating all repos at once we honor skip_if_unavailable,
+    and also download metadata in parallel (although this does not
+    matter that much since yum-cron is not interactive).
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 19436e5..b96dd13 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -414,7 +414,9 @@ class YumCronBase(yum.YumBase, YumOutput):
+ 
+         for repo in self.repos.sort():
+             repo.metadata_expire = 0
++            repo.skip_if_unavailable = True
+ 
++        self.pkgSack # honor skip_if_unavailable
+         self.upinfo
+ 
+     def refreshUpdates(self):
+commit a00fcf5e9ce765fd6aba2db327bfb072f23ac465
+Author: Jonathan Wakely <fedoration@kayari.org>
+Date:   Sun Dec 22 11:39:49 2013 +0000
+
+    docs: yum.conf.5: Fix typo.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 48ced00..c66eba8 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -148,7 +148,7 @@ Command-line option: \fB\-t\fP
+ .IP
+ \fBexclude\fR
+ List of packages to exclude from all repositories, so yum works
+-as if that package was never in the repositories.. This should be a space
++as if that package was never in the repositories. This should be a space
+ separated list.
+ This is commonly used so a package isn't upgraded or installed accidentally, but
+ can be used to remove packages in any way that "yum list" will show packages.
+commit c26740594afdf86c503c3406f1370dbb6ad0608b
+Author: James Antill <james@and.org>
+Date:   Thu Jan 2 10:57:08 2014 -0500
+
+    docs: Update --downloadonly section of man page.
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index 0e211eb..f7d6ec3 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -871,7 +871,8 @@ This option makes yum go slower, checking for things that shouldn't be possible
+ making it more tolerant of external errors.
+ .br
+ .IP "\fB\-\-downloadonly\fP"
+-Don't update, just download.
++Don't update, just download. This is done in the background, so the yum lock is released for other operations. This can also be chosen by typing 'd'ownloadonly
++at the transaction confirmation prompt.
+ .br
+ .IP "\fB\-\-downloaddir=directory\fP"
+ Specifies an alternate directory to store packages.
+commit 6ddb350b207cfa54d96232c23606444cd0b79341
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Mon Jan 13 16:12:33 2014 +0100
+
+    yum-cron: Enable random_sleep by default.
+
+diff --git a/etc/yum-cron-hourly.conf b/etc/yum-cron-hourly.conf
+index 2d52349..7871a46 100644
+--- a/etc/yum-cron-hourly.conf
++++ b/etc/yum-cron-hourly.conf
+@@ -25,7 +25,7 @@ apply_updates = no
+ # minutes before running.  This is useful for e.g. staggering the
+ # times that multiple systems will access update servers.  If
+ # random_sleep is 0 or negative, the program will run immediately.
+-random_sleep = 0
++random_sleep = 15
+ 
+ 
+ [emitters]
+diff --git a/etc/yum-cron.conf b/etc/yum-cron.conf
+index a97d881..f8de068 100644
+--- a/etc/yum-cron.conf
++++ b/etc/yum-cron.conf
+@@ -24,7 +24,7 @@ apply_updates = no
+ # minutes before running.  This is useful for e.g. staggering the
+ # times that multiple systems will access update servers.  If
+ # random_sleep is 0 or negative, the program will run immediately.
+-random_sleep = 0
++random_sleep = 6*60
+ 
+ 
+ [emitters]
+commit 2715047a195b29d6ac7d985166b985954267a0bb
+Author: James Antill <james@and.org>
+Date:   Tue Jan 14 15:29:03 2014 -0500
+
+    Fix yum-cron.conf default, as ini parser can't do Math.
+
+diff --git a/etc/yum-cron.conf b/etc/yum-cron.conf
+index f8de068..b0f7839 100644
+--- a/etc/yum-cron.conf
++++ b/etc/yum-cron.conf
+@@ -24,7 +24,8 @@ apply_updates = no
+ # minutes before running.  This is useful for e.g. staggering the
+ # times that multiple systems will access update servers.  If
+ # random_sleep is 0 or negative, the program will run immediately.
+-random_sleep = 6*60
++# 6*60 = 360
++random_sleep = 360
+ 
+ 
+ [emitters]

@@ -14,11 +14,6 @@
 BuildRequires: bash-completion
 %endif
 
-%if 0%{?fedora} <= 18
-# yum in Fedora <= 18 doesn't use systemd unit files...
-%define yum_cron_systemd 0
-%endif
-
 %if %{auto_sitelib}
 
 %{!?python_sitelib: %define python_sitelib %(python -c "from distutils.sysconfig import get_python_lib; print get_python_lib()")}
@@ -41,14 +36,13 @@ BuildRequires: bash-completion
 Summary: RPM package installer/updater/manager
 Name: yum
 Version: 3.4.3
-Release: 106.2%{?dist}
+Release: 117%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
 Source1: yum.conf.fedora
 Source2: yum-updatesd.conf.fedora
 Patch1: yum-distro-configs.patch
-Patch4: no-more-exactarchlist.patch
 Patch5: geode-arch.patch
 Patch6: yum-HEAD.patch
 Patch7: yum-ppc64-preferred.patch
@@ -58,6 +52,16 @@ Patch21: yum-completion-helper.patch
 # rhel-7.0
 Patch30: BZ-801067-remove-kernel-modules-from-installonly.patch
 patch31: BZ-1002977-use-the-provide-version.patch
+patch32: BZ-1033416-yum-error-on-non-us-locale.patch
+patch33: BZ-1050902-manpage-formatting-errrors.patch
+patch34: BZ-1052994-yum-cron-install-unsigned-packages.patch
+patch35: BZ-1041395-depsolve-loop-limit.patch
+patch36: BZ-1053289-misc-perf+UI+simple-bug+docs-fixes.patch
+patch37: BZ-1052436-group-bundle-pre-f20-fixes.patch
+patch38: BZ-1040619-yum-cron-reporting.patch
+patch39: BZ-1062959-add-fs-command.patch
+patch40: BZ-1052436-group-bundle-docs.patch
+patch41: BZ-1058297-remove-del-for-weird-anaconda-C-NULL-exception.patch
 
 URL: http://yum.baseurl.org/
 BuildArchitectures: noarch
@@ -86,6 +90,10 @@ Requires: pygpgme
 Requires: pyliblzma
 # Not really a suggests anymore, due to metadata using it.
 Requires: pyxattr
+# Suggests, needed for yum fs diff
+Requires: diffutils
+Requires: cpio
+
 
 Conflicts: rpm >= 5-0
 # Zif is a re-implementation of yum in C, however:
@@ -176,17 +184,28 @@ Install this package if you want auto yum updates nightly via cron.
 
 %prep
 %setup -q
-%patch4 -p0
 %patch5 -p1
 %patch6 -p1
 %patch7 -p1
 %patch20 -p1
 %patch21 -p1
-%patch1 -p1
 
 # rhel-7.0
 %patch30 -p1
 %patch31 -p1
+%patch32 -p1
+%patch33 -p1
+%patch34 -p1
+%patch35 -p1
+%patch36 -p1
+%patch37 -p1
+%patch38 -p1
+%patch39 -p1
+%patch40 -p1
+%patch41 -p1
+
+# Do distro config. changes after everything else.
+%patch1 -p1
 
 %build
 make
@@ -411,7 +430,59 @@ exit 0
 %endif
 
 %changelog
-* Wed Nov 21 2013 Zdenek Pavlas <zpavlas@redhat.com> - 3.4.3-106.2
+* Tue Apr  8 2014 James Antill <james.antill@redhat.com> - 3.4.3-117
+- Remove del for weird anaconda C NULL exception.
+- Resolves: rhbz#1058297
+
+* Tue Mar 25 2014 James Antill <james.antill@redhat.com> - 3.4.3-116
+- Fix traceback on removing doc dirs.
+- Resolves: rhbz#1062959
+- Tweak docs for groups info, showing yum remove results.
+- Resolves: rhbz#833087
+
+* Tue Mar 11 2014 James Antill <james.antill@redhat.com> - 3.4.3-115
+- Change docs for groups to make group_command=objects clearer.
+- Resolves: rhbz#833087
+
+* Sun Feb 23 2014 James Antill <james.antill@redhat.com> - 3.4.3-114
+- Fix /etc/yum.conf saving in fs filter.
+- Resolves: rhbz#1062959
+
+* Fri Feb 21 2014 James Antill <james.antill@redhat.com> - 3.4.3-113
+- Add fs sub-command and container creation fixes/optimizations.
+- Resolves: rhbz#1062959
+
+* Thu Jan 23 2014 Zdenek Pavlas <zpavlas@redhat.com> - 3.4.3-112
+- Improve yum-cron messages and error handling.
+- Resolves: rhbz#1040619
+- Enable yum_cron_systemd
+- Resolves: rhbz#1040620
+- Update "yum check" description.
+- Resolves: rhbz#1015000
+
+* Mon Jan 20 2014 James Antill <james.antill@redhat.com> - 3.4.3-111
+- A few simple perf, UI, bug, and docs. fixes.
+- Resolves: rhbz#1053289
+- A few group related bug fixes from pre-f20 testing.
+- Resolves: rhbz#1052436
+
+* Wed Jan 15 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-110
+- yum-cron: fail when sigCheckPkg() returns 2
+- Resolves: bug#1052994
+- depsolve_loop_limit=<forever> should try forever
+
+* Fri Jan 10 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-109
+- Fix quotes in the manpage
+- Resolves: bug#1050902
+
+* Wed Jan 8 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-108
+- Replace optparse._ with ugettext
+- Related: bug#1033416
+
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 3.4.3-107
+- Mass rebuild 2013-12-27
+
+* Thu Nov 21 2013 Zdenek Pavlas <zpavlas@redhat.com> - 3.4.3-106.2
 - _getsysver(): compat behavior when both pkg name and provide match.
 - Related: bug#1002977
 

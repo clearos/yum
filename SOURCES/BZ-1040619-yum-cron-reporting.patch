@@ -1,0 +1,231 @@
+commit 1fb713cdabf46694e76df4092615607fa09016fe
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Thu Dec 19 10:43:07 2013 +0100
+
+    yum-cron: initialize both debuglevel and errorlevel
+    
+    When warnings or errors are disabled in verbose
+    logger, disable them in error logger too.
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index a1fd10b..19436e5 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -380,16 +380,16 @@ class YumCronBase(yum.YumBase, YumOutput):
+             self.preconf.fn = self.opts.yum_config_file
+ 
+             # This needs to be set early, errors are handled later.
+-            try: self.preconf.debuglevel = int(self._confparser.get('base', 'debuglevel'))
+-            except: pass
++            try: level = int(self._confparser.get('base', 'debuglevel'))
++            except: level = -2
++            self.preconf.debuglevel = level
++            if -4 <= level <= -2:
++                self.preconf.errorlevel = level + 4
+ 
+             # if we are not root do the special subdir thing
+             if os.geteuid() != 0:
+                 self.setCacheDir()
+ 
+-            # Create the configuration
+-            self.conf
+-
+             # override base yum options
+             self.conf.populate(self._confparser, 'base')
+             del self._confparser
+commit d0441397dc5a5e4f4d3ccc3a99c4cda57b228009
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Mon Jan 6 14:12:46 2014 +0100
+
+    Remove emitCheckFailed(), change it to logger.warn(). BZ 1048391
+    
+    Make acquireLock() respect debuglevel.
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index b96dd13..386a7a0 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -86,17 +86,6 @@ class UpdateEmitter(object):
+                            % errmsg)
+         self.sendMessages()
+ 
+-    def lockFailed(self, errmsg):
+-        """Append a message to the output list stating that the
+-        program failed to acquire the yum lock, then call sendMessages
+-        to emit the output.
+-
+-        :param errmsg: a string that contains the error message
+-        """
+-        self.output.append("Failed to acquire the yum lock with the following error message: \n%s"
+-                           % errmsg)
+-        self.sendMessages()
+-
+     def checkFailed(self, errmsg):
+         """Append a message to the output stating that checking for
+         updates failed, then call sendMessages to emit the output.
+@@ -196,16 +185,6 @@ class EmailEmitter(UpdateEmitter):
+         self.subject = "Yum: Failed to perform setup on %s" % self.opts.system_name
+         super(EmailEmitter, self).setupFailed(errmsg)
+ 
+-    def lockFailed(self, errmsg):
+-        """Append a message to the output list stating that the
+-        program failed to acquire the yum lock, then call sendMessages
+-        to emit the output, and set an appropriate subject line.
+-
+-        :param errmsg: a string that contains the error message
+-        """
+-        self.subject = "Yum: Failed to  acquire the yum lock on %s" % self.opts.system_name
+-        super(EmailEmitter, self).lockFailed(errmsg)
+-
+     def checkFailed(self, errmsg):
+         """Append a message to the output stating that checking for
+         updates failed, then call sendMessages to emit the output, and
+@@ -406,7 +385,7 @@ class YumCronBase(yum.YumBase, YumOutput):
+         try:
+             self.doLock()
+         except yum.Errors.LockError, e:
+-            self.emitLockFailed("%s" % e)
++            self.logger.warn("Failed to acquire the yum lock: %s", e)
+             sys.exit(1)
+ 
+     def populateUpdateMetadata(self):
+@@ -675,10 +654,6 @@ class YumCronBase(yum.YumBase, YumOutput):
+         """Emit a notice stating that checking for updates failed."""
+         map(lambda x: x.setupFailed(error), self.emitters)
+ 
+-    def emitLockFailed(self, errmsg):
+-        """Emit a notice that we failed to acquire the yum lock."""
+-        map(lambda x: x.lockFailed(errmsg), self.emitters)
+-
+     def emitCheckFailed(self, error):
+         """Emit a notice stating that checking for updates failed."""
+         map(lambda x: x.checkFailed(error), self.emitters)
+commit 13f69f68876fade7611bcbab6f612937e1c02bff
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Wed Jan 15 09:11:30 2014 +0100
+
+    yum-cron: emitUpdateFailed() expects str, not an array.
+    
+    Avoid Python noise in the report.  Also, use implicit conversion
+    instead of str() for unicode interoperability.
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 87b3e69..6cbed94 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -545,7 +545,7 @@ class YumCronBase(yum.YumBase, YumOutput):
+                 try:
+                     self.getKeyForPackage(po)
+                 except yum.Errors.YumBaseError, errmsg:
+-                    self.emitUpdateFailed([str(errmsg)])
++                    self.emitUpdateFailed(errmsg)
+                     return False
+             else:
+                 self.emitUpdateFailed(err)
+@@ -563,8 +563,7 @@ class YumCronBase(yum.YumBase, YumOutput):
+         try:
+             self.runTransaction(cb=cb)
+         except yum.Errors.YumBaseError, err:
+-            
+-            self.emitUpdateFailed([str(err)])
++            self.emitUpdateFailed(err)
+             sys.exit(1)
+ 
+         if emit :
+@@ -675,9 +674,9 @@ class YumCronBase(yum.YumBase, YumOutput):
+         """Emit a notice stating that downloading the updates failed."""
+         map(lambda x: x.downloadFailed(error), self.emitters)
+ 
+-    def emitUpdateFailed(self, errmsgs):
++    def emitUpdateFailed(self, errmsg):
+         """Emit a notice stating that automatic updates failed."""
+-        map(lambda x: x.updatesFailed(errmsgs), self.emitters)
++        map(lambda x: x.updatesFailed(errmsg), self.emitters)
+ 
+     def emitMessages(self):
+         """Emit the messages from the emitters."""
+commit 048af21d6704d40e93e09c65f5c1b547a68e431e
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Mon Jan 20 10:59:58 2014 +0100
+
+    yum-cron: EmailEmitter failure should not be fatal. BZ 1055042
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 6cbed94..bfa580e 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -146,8 +146,9 @@ class UpdateEmitter(object):
+ class EmailEmitter(UpdateEmitter):
+     """Emitter class to send messages via email."""
+ 
+-    def __init__(self, opts):
++    def __init__(self, opts, logger):
+         super(EmailEmitter, self).__init__(opts)        
++        self.logger = logger
+         self.subject = ""
+ 
+     def updatesAvailable(self, summary):
+@@ -229,10 +230,13 @@ class EmailEmitter(UpdateEmitter):
+         msg['To'] = ",".join(self.opts.email_to)
+ 
+         # Send the email
+-        s = smtplib.SMTP()
+-        s.connect(self.opts.email_host)
+-        s.sendmail(self.opts.email_from, self.opts.email_to, msg.as_string())
+-        s.close()
++        try:
++            s = smtplib.SMTP()
++            s.connect(self.opts.email_host)
++            s.sendmail(self.opts.email_from, self.opts.email_to, msg.as_string())
++            s.close()
++        except Exception, e:
++            self.logger.error("Failed to send an email to %s: %s" % (self.opts.email_host, e))
+ 
+ 
+ class StdIOEmitter(UpdateEmitter):
+@@ -293,7 +297,7 @@ class YumCronBase(yum.YumBase, YumOutput):
+         # Create the emitters, and add them to the list
+         self.emitters = []
+         if 'email' in self.opts.emit_via:
+-            self.emitters.append(EmailEmitter(self.opts))
++            self.emitters.append(EmailEmitter(self.opts, self.logger))
+         if 'stdio' in self.opts.emit_via:
+             self.emitters.append(StdIOEmitter(self.opts))
+ 
+commit 8d21de54f5b267af8710c1358fd3a0475aed6bbb
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Mon Jan 20 11:41:15 2014 +0100
+
+    yum-cron: Add a retry loop around doLock().
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index bfa580e..e1028be 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -262,6 +262,8 @@ class YumCronConfig(BaseConfig):
+     system_name = Option(gethostname())
+     output_width = IntOption(80)
+     random_sleep = IntOption(0)
++    lock_retries = IntOption(5)
++    lock_sleep = IntOption(60)
+     emit_via = ListOption(['email','stdio'])
+     email_to = ListOption(["root"])
+     email_from = Option("root")
+@@ -386,9 +388,14 @@ class YumCronBase(yum.YumBase, YumOutput):
+     def acquireLock(self):
+         """ Wrapper method around doLock to emit errors correctly."""
+ 
+-        try:
+-            self.doLock()
+-        except yum.Errors.LockError, e:
++        i = 0
++        while True:
++            try: self.doLock(); break
++            except yum.Errors.LockError, e:
++                i += 1
++                if i < self.opts.lock_retries:
++                    sleep(self.opts.lock_sleep)
++                    continue
+             self.logger.warn("Failed to acquire the yum lock: %s", e)
+             sys.exit(1)
+ 

@@ -1,0 +1,741 @@
+commit 8b977a860595a02dc13b5eefd5f8783ba23e4acf
+Author: James Antill <james@and.org>
+Date:   Mon Nov 18 17:14:48 2013 -0500
+
+    Add _ugroup_member to txmbr, list installed for groups pkgs. BZ 1031374.
+
+diff --git a/output.py b/output.py
+index cf9e985..e42702e 100755
+--- a/output.py
++++ b/output.py
+@@ -1506,7 +1506,30 @@ class YumOutput:
+             a_wid = max(a_wid, len(a))
+             return a_wid
+ 
+-        for (action, pkglist) in [(_('Installing'), self.tsInfo.installed),
++        ninstalled = self.tsInfo.installed
++        ginstalled = {}
++        if self.conf.group_command == 'objects' and ninstalled:
++            # Show new pkgs. that are installed via. a group.
++            ninstalled = []
++            for txmbr in self.tsInfo.installed:
++                if not hasattr(txmbr, '_ugroup_member'):
++                    ninstalled.append(txmbr)
++                    continue
++                if txmbr._ugroup_member not in ginstalled:
++                    ginstalled[txmbr._ugroup_member] = []
++                ginstalled[txmbr._ugroup_member].append(txmbr)
++
++        for grp in sorted(ginstalled, key=lambda x: x.ui_name):
++            action = _('Installing for group upgrade "%s"') % grp.ui_name
++            pkglist = ginstalled[grp]
++
++            lines = []
++            for txmbr in pkglist:
++                a_wid = _add_line(lines, data, a_wid, txmbr.po, txmbr.obsoletes)
++
++            pkglist_lines.append((action, lines))
++
++        for (action, pkglist) in [(_('Installing'), ninstalled),
+                             (_('Updating'), self.tsInfo.updated),
+                             (_('Removing'), self.tsInfo.removed),
+                             (_('Reinstalling'), self.tsInfo.reinstalled),
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 6bd5962..f212884 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -3845,6 +3845,8 @@ much more problems).
+                                               pkg_warning_level='debug2')
+                         for txmbr in txmbrs:
+                             txmbr.group_member = thisgroup.groupid
++                            if lupgrade: # For list transaction.
++                                txmbr._ugroup_member = thisgroup
+                 except Errors.InstallError, e:
+                     self.verbose_logger.debug(_('No package named %s available to be installed'),
+                         pkg)
+commit 4a84e0f3d3954fdf0a94ecf61775ae9af43f2a4d
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 16:03:57 2013 -0500
+
+    Remove old FIXME for env. groups, fixes "group lists" without patterns.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index caafae4..69e8043 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -3520,8 +3520,7 @@ much more problems).
+             if self.conf.group_command == 'objects':
+                 igrps = self.igroups.groups.values()
+             evgrps = self.comps.environments
+-            if False and self.conf.group_command == 'objects':
+-                # FIXME: Environment groups.
++            if self.conf.group_command == 'objects':
+                 ievgrps = self.igroups.environments.values()
+             return igrps, grps, ievgrps, evgrps
+ 
+commit 42c82dd60dc498e7a2419b291a2392e77ffa5ded
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 16:31:33 2013 -0500
+
+    Confirm/assert new mocked igrps/ievgrps behaviour.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 69e8043..230a2e3 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -3629,6 +3629,12 @@ much more problems).
+         if ievgrps is None:
+             ievgrps = {}
+ 
++        #  Note that we used to get here with igrps/ievgrps that didn't exist
++        # in comps. but we mock them in comps now because it was hard to deal
++        # with that everywhere ... so just to confirm.
++        assert not igrps
++        assert not ievgrps
++
+         for igrp in igrps.values():
+             #  These are installed groups that aren't in comps anymore. so we
+             # create fake comps groups for them.
+commit e2c3d3f909088ba5e1cc237d2b57eab669e7befd
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 15:29:06 2013 -0500
+
+    Warn iff return_{groups, environments} returned an empty list. BZ 1043207.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 230a2e3..d051a1c 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4458,24 +4458,31 @@ much more problems).
+         if group_string and group_string[0] == '^':
+             group_string = group_string[1:]
+             # Actually dealing with "environment groups".
++            found = False
+             for env_grp in comps.return_environments(group_string):
++                found = True
+                 try:
+                     txmbrs = self.selectEnvironment(env_grp.environmentid,
+                                                     upgrade=upgrade)
+                     tx_return.extend(txmbrs)
+                 except yum.Errors.GroupsError:
+-                    self.logger.critical(_('Warning: Environment Group %s does not exist.'), group_string)
++                    assert False, "Checked in for loop."
+                     continue
++            if not found:
++                self.logger.error(_('Warning: Environment group %s does not exist.'),
++                                  group_string)
+             return tx_return
+ 
++        found = False
+         for group in comps.return_groups(group_string):
++            found = True
+             try:
+                 txmbrs = self.selectGroup(group.groupid, upgrade=upgrade)
+                 tx_return.extend(txmbrs)
+             except yum.Errors.GroupsError:
+-                self.logger.critical(_('Warning: Group %s does not exist.'), group_string)
++                assert False, "Checked in for loop."
+                 continue
+-        else:
++        if not found:
+             self.logger.error(_('Warning: group %s does not exist.'),
+                               group_string)
+ 
+commit 406dae058a021cf1171666c4e779721ef7ac680e
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 17:34:40 2013 -0500
+
+    Remove old test to allow comma separated grpid for selectGroup().
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index d051a1c..2709225 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -3771,9 +3771,6 @@ much more problems).
+            transaction set by this function
+         """
+ 
+-        if not self.comps.has_group(grpid):
+-            raise Errors.GroupsError, _("No Group named %s exists") % to_unicode(grpid)
+-        
+         txmbrs_used = []
+         thesegroups = self.comps.return_groups(grpid)
+      
+commit 1cedb184fe356252b0f22988ef8cd88d2de365ce
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 17:37:16 2013 -0500
+
+    Contain selectGroup() exceptions when selecting environments. BZ 1014202.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 2709225..72052ab 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4007,10 +4007,13 @@ much more problems).
+                                                  evgrp.allgroups)
+                 grps = ",".join(sorted(grps))
+ 
+-            txs = self.selectGroup(grps,
+-                                   group_package_types,
+-                                   enable_group_conditionals, upgrade,
+-                                   ievgrp=ievgrp)
++            try:
++                txs = self.selectGroup(grps,
++                                       group_package_types,
++                                       enable_group_conditionals, upgrade,
++                                       ievgrp=ievgrp)
++            except Errors.GroupsError:
++                continue
+             ret.extend(txs)
+         return ret
+ 
+commit 23b51f3242f066ebfa3d79df1a1122293f8ab432
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 17:38:22 2013 -0500
+
+    Add groups from installed environments, and unique, so we don't miss any.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 72052ab..633bd76 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -3991,7 +3991,7 @@ much more problems).
+             elif self.conf.group_command == 'objects':
+                 igroup_data = self._groupInstalledEnvData(evgrp)
+  
+-                grps = []
++                grps = set()
+                 for grpid in evgrp.groups:
+                     if (grpid not in igroup_data or
+                         igroup_data[grpid].startswith('blacklisted')):
+@@ -3999,9 +3999,10 @@ much more problems).
+                         self.verbose_logger.log(logginglevels.DEBUG_2,
+                                                 msg, grpid, evgrp.environmentid)
+                         continue
+-                    grps.append(grpid)
++                    grps.add(grpid)
+                 if evgrp.environmentid in self.igroups.environments:
+                     ievgrp = self.igroups.environments[evgrp.environmentid]
++                    grps.update(ievgrp.grp_names)
+                 else:
+                     self.igroups.add_environment(evgrp.environmentid,
+                                                  evgrp.allgroups)
+commit 4926655b7acd588de34322b07a5cf54de24f33dc
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 17:48:16 2013 -0500
+
+    Change groupupdate command to call "group update" back compat. too confusing.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index b346128..e01c96d 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -890,7 +890,7 @@ class GroupsCommand(YumCommand):
+ 
+     direct_commands = {'grouplist'    : 'list',
+                        'groupinstall' : 'install',
+-                       'groupupdate'  : 'install',
++                       'groupupdate'  : 'update',
+                        'groupremove'  : 'remove',
+                        'grouperase'   : 'remove',
+                        'groupinfo'    : 'info'}
+commit 0a07500f2c4c76a1cb1ef428a7585238802e0a86
+Author: James Antill <james@and.org>
+Date:   Mon Dec 16 17:49:15 2013 -0500
+
+    Have "yum group upgrade" do all, as "yum upgrade" does in objs. mode.
+
+diff --git a/cli.py b/cli.py
+index 180ba99..be8c46f 100755
+--- a/cli.py
++++ b/cli.py
+@@ -1913,6 +1913,14 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+             2 = we've got work yet to do, onto the next stage
+         """
+         pkgs_used = []
++
++        if not grouplist and self.conf.group_command == 'objects':
++            #  Do what "yum upgrade" does when upgrade_group_objects_upgrade is
++            # set.
++            for ievgrp in self.igroups.environments:
++                pkgs_used.extend(self._at_groupupgrade('@^' + ievgrp))
++            for igrp in self.igroups.groups:
++                pkgs_used.extend(self._at_groupupgrade('@'  + igrp))
+         
+         for group_string in grouplist:
+ 
+commit c8f16477b2deaeaf78ba88b9ea38b565061412a9
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 10:48:44 2013 -0500
+
+    Don't add all grps in the installed evgrp, just those that belong.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 633bd76..b7eedf4 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4002,7 +4002,15 @@ much more problems).
+                     grps.add(grpid)
+                 if evgrp.environmentid in self.igroups.environments:
+                     ievgrp = self.igroups.environments[evgrp.environmentid]
+-                    grps.update(ievgrp.grp_names)
++                    #  Add groups from the installed evgrp, for Eg. installed
++                    # only evgrps.
++                    for grp_name in ievgrp.grp_names:
++                        if grp_name not in self.igroups.groups:
++                            continue
++                        grp_evgrpid = self.igroups.groups[grp_name].environment
++                        if grp_evgrpid != evgrp.environmentid:
++                            continue
++                        grps.add(grp_name)
+                 else:
+                     self.igroups.add_environment(evgrp.environmentid,
+                                                  evgrp.allgroups)
+commit a6f1124787cff91c435f9c8da2d658fe241ad026
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 16:36:31 2013 -0500
+
+    Don't confuse <group info> output by giving data for optional when it's off.
+
+diff --git a/output.py b/output.py
+index 041910c..eb38d7d 100755
+--- a/output.py
++++ b/output.py
+@@ -1131,10 +1131,14 @@ class YumOutput:
+         if group.langonly:
+             print _(' Language: %s') % group.langonly
+ 
+-        sections = ((_(' Mandatory Packages:'),   group.mandatory_packages),
+-                    (_(' Default Packages:'),     group.default_packages),
+-                    (_(' Optional Packages:'),    group.optional_packages),
+-                    (_(' Conditional Packages:'), group.conditional_packages))
++        sections = (('mandatory', _(' Mandatory Packages:'),
++                     group.mandatory_packages),
++                    ('default',  _(' Default Packages:'),
++                     group.default_packages),
++                    ('optional', _(' Optional Packages:'),
++                     group.optional_packages),
++                    (None, _(' Conditional Packages:'),
++                     group.conditional_packages))
+         columns = None
+         if verb:
+             data = {'envra' : {}, 'rid' : {}}
+@@ -1145,12 +1149,21 @@ class YumOutput:
+             columns = self.calcColumns(data)
+             columns = (-columns[0], -columns[1])
+ 
+-        for (section_name, pkg_names) in sections:
++        for (section_type, section_name, pkg_names) in sections:
++            #  Only display igroup data for things that we'll actually try to
++            # install.
++            if section_type is None:
++                tigroup_data = igroup_data
++            elif section_type in self.conf.group_package_types:
++                tigroup_data = igroup_data
++            else:
++                tigroup_data = None
++
+             if len(pkg_names) > 0:
+                 print section_name
+                 self._displayPkgsFromNames(pkg_names, verb, pkg_names2pkgs,
+                                            columns=columns,
+-                                           igroup_data=igroup_data)
++                                           igroup_data=tigroup_data)
+         if igrp_only:
+             print _(' Installed Packages:')
+             self._displayPkgsFromNames(igrp_only, verb, pkg_names2pkgs,
+commit 14bf13706a708764065e729998a30a991541906e
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 16:40:00 2013 -0500
+
+    Pass the ievgrp to groups for new installed envs., so they belong. BZ 1043231
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index b7eedf4..1c17768 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4012,8 +4012,8 @@ much more problems).
+                             continue
+                         grps.add(grp_name)
+                 else:
+-                    self.igroups.add_environment(evgrp.environmentid,
+-                                                 evgrp.allgroups)
++                    ievgrp = self.igroups.add_environment(evgrp.environmentid,
++                                                          evgrp.allgroups)
+                 grps = ",".join(sorted(grps))
+ 
+             try:
+commit d6ddfc90cda8c4e735a55628960ff623f40b27f6
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 17:01:13 2013 -0500
+
+    Fix typo with simple groups compile of environment with only options.
+
+diff --git a/yum/comps.py b/yum/comps.py
+index 706e2a4..92e87ba 100755
+--- a/yum/comps.py
++++ b/yum/comps.py
+@@ -879,7 +879,7 @@ class Comps(object):
+                         break
+             else:
+                 evgroup.installed = False
+-                for grpname in evgroup.optional:
++                for grpname in evgroup.options:
+                     if grpname in inst_grp_names:
+                         evgroup.installed = True
+                         break
+commit 926f893eaa933b086d442957ee271348bfb1d2a3
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 16:56:19 2013 -0500
+
+    Fix mark-convert-whitelist, and add mark-convert-blacklist (default).
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index dff88af..e0bd5da 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -320,9 +320,19 @@ the packages as a member of the group.
+ "\fBgroup mark packages-force\fP" works like mark packages, but doesn't care if
+ the packages are already members of another group.
+ 
+-"\fBgroup mark convert\fP" converts the automatic data you get without using
+-groups as objects into groups as objects data. This makes it much easier to
+-convert to groups as objects without having to reinstall.
++"\fBgroup mark convert-blacklist\fP"
++
++"\fBgroup mark convert-whitelist\fP"
++
++"\fBgroup mark convert\fP" converts the automatic data you get
++without using groups as objects into groups as objects data, in other words
++this will make "yum --setopt=group_command=objects groups list" look as similar
++as possible to the current output of
++"yum --setopt=group_command=simple groups list". This makes it much
++easier to convert to groups as objects without having to reinstall. For groups
++that are installed the whitelist variant will mark all uninstalled packages for
++the group as to be installed on the next "yum group upgrade", the blacklist
++variant (current default) will mark them all as blacklisted.
+ 
+ "\fBgroup unmark packages\fP" remove a package as a member from any groups.
+ .IP
+diff --git a/yumcommands.py b/yumcommands.py
+index e01c96d..f07d270 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -973,6 +973,7 @@ class GroupsCommand(YumCommand):
+                          'mark-groups-sync', 'mark-groups-sync-force')
+ 
+             ocmds_all = ('mark-install', 'mark-remove', 'mark-convert',
++                         'mark-convert-whitelist', 'mark-convert-blacklist',
+                          'mark-packages', 'mark-packages-force',
+                          'unmark-packages',
+                          'mark-packages-sync', 'mark-packages-sync-force',
+@@ -1002,13 +1003,13 @@ class GroupsCommand(YumCommand):
+             pass
+         elif not os.path.exists(os.path.dirname(base.igroups.filename)):
+             base.logger.critical(_("There is no installed groups file."))
+-            base.logger.critical(_("Maybe run: yum groups mark convert"))
++            base.logger.critical(_("Maybe run: yum groups mark convert (see man yum)"))
+         elif not os.access(os.path.dirname(base.igroups.filename), os.R_OK):
+             base.logger.critical(_("You don't have access to the groups DBs."))
+             raise cli.CliError
+         elif not os.path.exists(base.igroups.filename):
+             base.logger.critical(_("There is no installed groups file."))
+-            base.logger.critical(_("Maybe run: yum groups mark convert"))
++            base.logger.critical(_("Maybe run: yum groups mark convert (see man yum)"))
+         elif not os.access(base.igroups.filename, os.R_OK):
+             base.logger.critical(_("You don't have access to the groups DB."))
+             raise cli.CliError
+@@ -1157,14 +1158,15 @@ class GroupsCommand(YumCommand):
+                     return 0, ['Marked groups-sync: ' + ','.join(extcmds)]
+ 
+             # FIXME: This doesn't do environment groups atm.
+-            if cmd == 'mark-convert':
++            if cmd in ('mark-convert',
++                       'mark-convert-whitelist', 'mark-convert-blacklist'):
+                 # Convert old style info. into groups as objects.
+ 
+                 def _convert_grp(grp):
+                     if not grp.installed:
+                         return
+                     pkg_names = []
+-                    for pkg in base.rpmdb.searchNames(pkg_names):
++                    for pkg in base.rpmdb.searchNames(grp.packages):
+                         if 'group_member' in pkg.yumdb_info:
+                             continue
+                         pkg.yumdb_info.group_member = grp.groupid
+@@ -1173,7 +1175,10 @@ class GroupsCommand(YumCommand):
+                     #  We only mark the packages installed as a known part of
+                     # the group. This way "group update" will work and install
+                     # any remaining packages, as it would before the conversion.
+-                    base.igroups.add_group(grp.groupid, pkg_names)
++                    if cmd == 'mark-convert-whitelist':
++                        base.igroups.add_group(grp.groupid, pkg_names)
++                    else:
++                        base.igroups.add_group(grp.groupid, grp.packages)
+ 
+                 # Blank everything.
+                 for gid in base.igroups.groups.keys():
+commit 22f07ea55219b325b17e93406ee272a1ba492378
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 17:19:12 2013 -0500
+
+    Add _igroup_member, so we can find installing groups for output.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 1c17768..b86c451 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -3849,6 +3849,8 @@ much more problems).
+                             txmbr.group_member = thisgroup.groupid
+                             if lupgrade: # For list transaction.
+                                 txmbr._ugroup_member = thisgroup
++                            else:
++                                txmbr._igroup_member = thisgroup
+                 except Errors.InstallError, e:
+                     self.verbose_logger.debug(_('No package named %s available to be installed'),
+                         pkg)
+commit d8794ef4df1704b65f2dbb97ad5a94c7c02b134e
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 17:19:28 2013 -0500
+
+    Show install groups as well as upgrading groups in transaction output.
+
+diff --git a/output.py b/output.py
+index eb38d7d..38045e9 100755
+--- a/output.py
++++ b/output.py
+@@ -1525,16 +1525,26 @@ class YumOutput:
+             # Show new pkgs. that are installed via. a group.
+             ninstalled = []
+             for txmbr in self.tsInfo.installed:
+-                if not hasattr(txmbr, '_ugroup_member'):
++                if hasattr(txmbr, '_igroup_member'):
++                    key = ('i', txmbr._igroup_member)
++                    if key not in ginstalled:
++                        ginstalled[key] = []
++                    ginstalled[key].append(txmbr)
++                elif hasattr(txmbr, '_ugroup_member'):
++                    key = ('u', txmbr._ugroup_member)
++                    if key not in ginstalled:
++                        ginstalled[key] = []
++                    ginstalled[key].append(txmbr)
++                else:
+                     ninstalled.append(txmbr)
+-                    continue
+-                if txmbr._ugroup_member not in ginstalled:
+-                    ginstalled[txmbr._ugroup_member] = []
+-                ginstalled[txmbr._ugroup_member].append(txmbr)
+ 
+-        for grp in sorted(ginstalled, key=lambda x: x.ui_name):
+-            action = _('Installing for group upgrade "%s"') % grp.ui_name
+-            pkglist = ginstalled[grp]
++        for (T, grp) in sorted(ginstalled, key=lambda x: x[1].ui_name):
++            if T == 'u':
++                msg = _('Installing for group upgrade "%s"')
++            else:
++                msg = _('Installing for group install "%s"')
++            action = msg % grp.ui_name
++            pkglist = ginstalled[(T, grp)]
+ 
+             lines = []
+             for txmbr in pkglist:
+commit 5bd3c6aa6926a427a7ef660868ac7aa1adbd83f9
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 17:24:17 2013 -0500
+
+    Canonicalize the "no group" warnings to env. group and pkg group.
+
+diff --git a/cli.py b/cli.py
+index be8c46f..2873656 100755
+--- a/cli.py
++++ b/cli.py
+@@ -1944,7 +1944,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                     txmbrs = self.selectEnvironment(group.environmentid,
+                                                     upgrade=upgrade)
+                 except yum.Errors.GroupsError:
+-                    self.logger.critical(_('Warning: environment %s does not exist.'), group_string)
++                    self.logger.critical(_('Warning: Environment group %s does not exist.'), group_string)
+                     continue
+                 else:
+                     pkgs_used.extend(txmbrs)
+@@ -1958,7 +1958,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                 try:
+                     txmbrs = self.selectGroup(group.groupid, upgrade=upgrade)
+                 except yum.Errors.GroupsError:
+-                    self.logger.critical(_('Warning: group %s does not exist.'), group_string)
++                    self.logger.critical(_('Warning: Package group %s does not exist.'), group_string)
+                     continue
+                 else:
+                     pkgs_used.extend(txmbrs)
+diff --git a/yum/__init__.py b/yum/__init__.py
+index b86c451..41c932c 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4494,7 +4494,7 @@ much more problems).
+                 assert False, "Checked in for loop."
+                 continue
+         if not found:
+-            self.logger.error(_('Warning: group %s does not exist.'),
++            self.logger.error(_('Warning: Package group %s does not exist.'),
+                               group_string)
+ 
+         return tx_return
+commit 31ef7b51e3d079e0f0203af1366e38577cdc8947
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 17:38:22 2013 -0500
+
+    Tell users how to mark install/remove groups without packages.
+
+diff --git a/cli.py b/cli.py
+index 2873656..c05a4cf 100755
+--- a/cli.py
++++ b/cli.py
+@@ -1968,6 +1968,8 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                 continue
+             
+         if not pkgs_used:
++            if base.conf.group_command == 'objects':
++                self.logger.critical(_("Maybe run: yum groups mark install (see man yum)"))
+             return 0, [_('No packages in any requested group available to install or update')]
+         else:
+             return 2, [P_('%d package to Install', '%d packages to Install', len(pkgs_used)) % len(pkgs_used)]
+@@ -2024,6 +2026,8 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                     pkgs_used.extend(txmbrs)
+                 
+         if not pkgs_used:
++            if base.conf.group_command == 'objects':
++                self.logger.critical(_("Maybe run: yum groups mark remove (see man yum)"))
+             return 0, [_('No packages to remove from groups')]
+         else:
+             return 2, [P_('%d package to remove', '%d packages to remove', len(pkgs_used)) % len(pkgs_used)]
+commit 3722c9a8f3d1435462dd1abcf62a571a1b4b4d29
+Author: James Antill <james@and.org>
+Date:   Tue Dec 17 17:38:26 2013 -0500
+
+    Add "groups mark blacklist" command to get out of the upgrade problem.
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index e0bd5da..0e211eb 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -320,6 +320,10 @@ the packages as a member of the group.
+ "\fBgroup mark packages-force\fP" works like mark packages, but doesn't care if
+ the packages are already members of another group.
+ 
++"\fBgroup mark blacklist\fP" will blacklist all packages marked to be installed
++for a group. After this command a "yum group upgrade" will not install any new
++packages as part of the group.
++
+ "\fBgroup mark convert-blacklist\fP"
+ 
+ "\fBgroup mark convert-whitelist\fP"
+diff --git a/yumcommands.py b/yumcommands.py
+index f07d270..291eae5 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -965,6 +965,7 @@ class GroupsCommand(YumCommand):
+         ocmds_arg = []
+         if base.conf.group_command == 'objects':
+             ocmds_arg = ('mark-install', 'mark-remove',
++                         'mark-blacklist',
+                          'mark-packages', 'mark-packages-force',
+                          'unmark-packages',
+                          'mark-packages-sync', 'mark-packages-sync-force',
+@@ -974,6 +975,7 @@ class GroupsCommand(YumCommand):
+ 
+             ocmds_all = ('mark-install', 'mark-remove', 'mark-convert',
+                          'mark-convert-whitelist', 'mark-convert-blacklist',
++                         'mark-blacklist',
+                          'mark-packages', 'mark-packages-force',
+                          'unmark-packages',
+                          'mark-packages-sync', 'mark-packages-sync-force',
+@@ -1063,6 +1065,24 @@ class GroupsCommand(YumCommand):
+                 base.igroups.save()
+                 return 0, ['Marked install: ' + ','.join(extcmds)]
+ 
++            if cmd == 'mark-blacklist':
++                gRG = base._groupReturnGroups(extcmds,ignore_case=False)
++                igrps, grps, ievgrps, evgrps = gRG
++                for ievgrp in ievgrps:
++                    evgrp = base.comps.return_environment(igrp.evgid)
++                    if not evgrp:
++                        continue
++                    base.igroups.changed = True
++                    ievgrp.grp_names.update(grp.groups)
++                for igrp in igrps:
++                    grp = base.comps.return_group(igrp.gid)
++                    if not grp:
++                        continue
++                    base.igroups.changed = True
++                    igrp.pkg_names.update(grp.packages)
++                base.igroups.save()
++                return 0, ['Marked upgrade blacklist: ' + ','.join(extcmds)]
++
+             if cmd in ('mark-packages', 'mark-packages-force'):
+                 if len(extcmds) < 2:
+                     return 1, ['No group or package given']
+commit 1ec588666b376e5a61446c6ca1cd5ae764e0a590
+Author: James Antill <james@and.org>
+Date:   Wed Dec 18 16:19:10 2013 -0500
+
+    Fix typo in new mark install/remove messages.
+
+diff --git a/cli.py b/cli.py
+index c05a4cf..5b44b2c 100755
+--- a/cli.py
++++ b/cli.py
+@@ -1968,7 +1968,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                 continue
+             
+         if not pkgs_used:
+-            if base.conf.group_command == 'objects':
++            if self.conf.group_command == 'objects':
+                 self.logger.critical(_("Maybe run: yum groups mark install (see man yum)"))
+             return 0, [_('No packages in any requested group available to install or update')]
+         else:
+@@ -2026,7 +2026,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                     pkgs_used.extend(txmbrs)
+                 
+         if not pkgs_used:
+-            if base.conf.group_command == 'objects':
++            if self.conf.group_command == 'objects':
+                 self.logger.critical(_("Maybe run: yum groups mark remove (see man yum)"))
+             return 0, [_('No packages to remove from groups')]
+         else:
+commit 48f1ff768211fc5c6b7e0254b0e655b4a4ba451e
+Author: James Antill <james@and.org>
+Date:   Thu Dec 19 00:00:26 2013 -0500
+
+    Delete extra break from for to if change, which now breaks outer loop.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 41c932c..9fb88d4 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -3506,7 +3506,6 @@ much more problems).
+ 
+             if igrp.environment == evgroup.environmentid:
+                 ret[grp_name] = 'installed'
+-                break
+             else:
+                 ret[grp_name] = 'blacklisted-installed'
+ 
+commit 9d4dae82c83df81197502b4a4bebc73c1cb3bd3e
+Author: James Antill <james@and.org>
+Date:   Fri Dec 20 14:46:33 2013 -0500
+
+    Fix traceback in group info -v.
+
+diff --git a/output.py b/output.py
+index 38045e9..2787d86 100755
+--- a/output.py
++++ b/output.py
+@@ -1142,7 +1142,7 @@ class YumOutput:
+         columns = None
+         if verb:
+             data = {'envra' : {}, 'rid' : {}}
+-            for (section_name, pkg_names) in sections:
++            for (section_type, section_name, pkg_names) in sections:
+                 self._calcDataPkgColumns(data, pkg_names, pkg_names2pkgs,
+                                          igroup_data=igroup_data)
+             data = [data['envra'], data['rid']]

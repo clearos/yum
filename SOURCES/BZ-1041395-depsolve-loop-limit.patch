@@ -1,0 +1,63 @@
+commit cfd0f0f8ad4bb285755ecc66e528a807f864b4ca
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Wed Dec 11 15:09:28 2013 +0100
+
+    depsolve_loop_limit=<forever> should try forever
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index da13dc8..48ced00 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -882,7 +882,7 @@ Default is: !*/swap !*/lv_swap glob:/etc/yum/fssnap.d/*.conf
+ Set the number of times any attempt to depsolve before we just give up. This
+ shouldn't be needed as yum should always solve or fail, however it has been
+ observed that it can loop forever with very large system upgrades. Setting
+-this to `0' (or "forever") makes yum try forever. Default is `100'.
++this to `0' (or "<forever>") makes yum try forever. Default is `100'.
+ 
+ 
+ .SH "[repository] OPTIONS"
+diff --git a/yum/depsolve.py b/yum/depsolve.py
+index 8b438bb..81bfdf8 100644
+--- a/yum/depsolve.py
++++ b/yum/depsolve.py
+@@ -870,7 +870,7 @@ class Depsolve(object):
+         if self.dsCallback: self.dsCallback.start()
+ 
+         depsolve_loop_count = 0
+-        while depsolve_loop_count < self.conf.depsolve_loop_limit:
++        while depsolve_loop_count != (self.conf.depsolve_loop_limit or -1):
+             depsolve_loop_count += 1
+ 
+             CheckDeps = True
+commit 57f063c11cc8712ce8055d9e9429d897d7d0072c
+Author: Zdenek Pavlas <zpavlas@redhat.com>
+Date:   Thu Dec 12 10:32:49 2013 +0100
+
+    Test depsolve_loop_count vs depsolve_loop_limit only once
+
+diff --git a/yum/depsolve.py b/yum/depsolve.py
+index 81bfdf8..95c21bc 100644
+--- a/yum/depsolve.py
++++ b/yum/depsolve.py
+@@ -870,7 +870,9 @@ class Depsolve(object):
+         if self.dsCallback: self.dsCallback.start()
+ 
+         depsolve_loop_count = 0
+-        while depsolve_loop_count != (self.conf.depsolve_loop_limit or -1):
++        while True:
++            if depsolve_loop_count == (self.conf.depsolve_loop_limit or -1):
++                return (1, [_("Depsolving loop limit reached.")] + unique(errors))
+             depsolve_loop_count += 1
+ 
+             CheckDeps = True
+@@ -922,9 +924,6 @@ class Depsolve(object):
+ 
+             break
+ 
+-        if depsolve_loop_count >= self.conf.depsolve_loop_limit:
+-            return (1, [_("Depsolving loop limit reached.")] + unique(errors))
+-
+         # FIXME: this doesn't belong here at all...
+         for txmbr in self.tsInfo.getMembers():
+             if self.allowedMultipleInstalls(txmbr.po) and \

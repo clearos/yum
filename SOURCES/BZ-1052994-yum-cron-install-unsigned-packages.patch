@@ -1,0 +1,22 @@
+From: Zdenek Pavlas <zpavlas@redhat.com>
+Date: Tue, 14 Jan 2014 14:41:45 +0000 (+0100)
+Subject: yum-cron: fail when sigCheckPkg() returns 2. BZ 1052440
+X-Git-Url: http://yum.baseurl.org/gitweb?p=yum.git;a=commitdiff_plain;h=9df69e579496ccb6df5c3f5b5b7bab8d648b06b4
+
+yum-cron: fail when sigCheckPkg() returns 2. BZ 1052440
+---
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 386a7a0..87b3e69 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -547,6 +547,9 @@ class YumCronBase(yum.YumBase, YumOutput):
+                 except yum.Errors.YumBaseError, errmsg:
+                     self.emitUpdateFailed([str(errmsg)])
+                     return False
++            else:
++                self.emitUpdateFailed(err)
++                return False
+ 
+         del self.ts
+         self.initActionTs() # make a new, blank ts to populate
