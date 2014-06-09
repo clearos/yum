@@ -16,3 +16,22 @@ index 347a07a..cdc08a0 100644
              
          # This screws up the length, but that shouldn't matter. We only care
          # if this checksum == what we expect.
+commit 7cd5919c13e4e5efbd9c0b291124893e550e3633
+Author: Vratislav Podzimek <vpodzime@redhat.com>
+Date:   Tue Apr 15 09:46:23 2014 -0400
+
+    Remove CHUNK argument from open, in checksum. BZ 1058297.
+
+diff --git a/yum/misc.py b/yum/misc.py
+index cdc08a0..6850ae2 100644
+--- a/yum/misc.py
++++ b/yum/misc.py
+@@ -351,7 +351,7 @@ def checksum(sumtype, file, CHUNK=2**16, datasize=None):
+         if type(file) not in types.StringTypes:
+             fo = file # assume it's a file-like-object
+         else:           
+-            fo = open(file, 'r', CHUNK)
++            fo = open(file, 'r')
+ 
+         data = Checksums([sumtype])
+         while data.read(fo, CHUNK):

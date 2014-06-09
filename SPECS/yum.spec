@@ -36,7 +36,7 @@ BuildRequires: bash-completion
 Summary: RPM package installer/updater/manager
 Name: yum
 Version: 3.4.3
-Release: 117%{?dist}
+Release: 118%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
@@ -430,6 +430,10 @@ exit 0
 %endif
 
 %changelog
+* Tue Apr 15 2014 James Antill <james.antill@redhat.com> - 3.4.3-118
+- Remove CHUNK argument from open() for weird anaconda C NULL exception.
+- Resolves: rhbz#1058297
+
 * Tue Apr  8 2014 James Antill <james.antill@redhat.com> - 3.4.3-117
 - Remove del for weird anaconda C NULL exception.
 - Resolves: rhbz#1058297
