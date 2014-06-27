@@ -40,7 +40,7 @@ Release: 118%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
-Source1: yum.conf.fedora
+Source1: yum.conf.centos
 Source2: yum-updatesd.conf.fedora
 Patch1: yum-distro-configs.patch
 Patch5: geode-arch.patch
@@ -85,6 +85,7 @@ Requires: python-iniparse
 Requires: python-sqlite
 Requires: python-urlgrabber >= 3.9.0-8
 Requires: yum-metadata-parser >= 1.1.0
+Requires: yum-plugin-fastestmirror
 Requires: pygpgme
 # rawhide is >= 0.5.3-7.fc18 ... as this is added.
 Requires: pyliblzma
@@ -430,6 +431,12 @@ exit 0
 %endif
 
 %changelog
+* Fri Jun 27 2014 Karanbir Singh <kbsingh@centos.org> - 3.4.3-118.el7.centos
+- Make yum require yum-plugin-fastestmirror
+- use the CentOS bug tracker url 
+- retain 5 for installonlyn
+- ensure distrover is always from centos-release
+
 * Tue Apr 15 2014 James Antill <james.antill@redhat.com> - 3.4.3-118
 - Remove CHUNK argument from open() for weird anaconda C NULL exception.
 - Resolves: rhbz#1058297
