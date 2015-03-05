@@ -1,0 +1,42 @@
+commit fada4b8dbd30d0335a9c07067a74dccec0abbedb
+Author: James Antill <james@and.org>
+Date:   Mon Sep 29 11:40:54 2014 -0400
+
+    Don't look for upgrades for install only packages. BZ 1063181.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index a8a4e80..83a546a 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4654,6 +4654,9 @@ much more problems).
+             # don't have to.
+             return po.pkgtup in self.up.updating_dict
+ 
++        if self.allowedMultipleInstalls(po):
++            return False
++
+         for ipkg in ipkgs:
+             if po.verLE(ipkg):
+                 continue
+diff -up yum-3.4.3/test/simpleupdatetests.py.old yum-3.4.3/test/simpleupdatetests.py
+--- yum-3.4.3/test/simpleupdatetests.py.old	2014-09-30 11:01:39.000000000 +0200
++++ yum-3.4.3/test/simpleupdatetests.py	2014-09-30 11:02:19.513283044 +0200
+@@ -1230,3 +1230,18 @@ class SimpleUpdateTests(OperationsTests)
+ 
+         self.assert_(self._pkg2txmbr(foo11).reason == 'user')
+         self.assert_(self._pkg2txmbr(bar11).reason == 'blahg')
++
++    def testInstall_kernel_intermediate(self):
++        #  Make sure we don't break this again...
++        k11 = FakePackage('kernel', '1', '1', '0', 'i386')
++        k12 = FakePackage('kernel', '1', '2', '0', 'i386')
++        k13 = FakePackage('kernel', '1', '3', '0', 'i386')
++        k14 = FakePackage('kernel', '1', '4', '0', 'i386')
++        k15 = FakePackage('kernel', '1', '5', '0', 'i386')
++
++        res, msg = self.runOperation(['install', 'kernel-1-2'],
++                                     [k11, k13, k14],
++                                     [k11, k12, k13, k14, k15])
++
++        self.assert_(res=='ok', msg)
++        self.assertResult((k11, k12, k13, k14))

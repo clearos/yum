@@ -1,0 +1,77 @@
+commit 507182919894e9bf75b08a75cb22c49d852c8278
+Author: James Antill <james@and.org>
+Date:   Wed May 21 15:14:55 2014 -0400
+
+    Check /usr for writability before running a transaction.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 4ec7689..c39544d 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -892,6 +892,11 @@ shouldn't be needed as yum should always solve or fail, however it has been
+ observed that it can loop forever with very large system upgrades. Setting
+ this to `0' (or "<forever>") makes yum try forever. Default is `100'.
+ 
++.IP
++\fBusr_w_check\fR
++Either `0' or `1'. Set this to `0' to disable the checking for writability on
++/usr in the installroot (when going into the depsolving stage). Default is `1'
++(perform the check).
+ 
+ .SH "[repository] OPTIONS"
+ .LP 
+diff --git a/yum/config.py b/yum/config.py
+index 7bb56d0..f0f4e96 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -906,6 +906,8 @@ class YumConf(StartupConf):
+ 
+     check_config_file_age = BoolOption(True)
+ 
++    usr_w_check = BoolOption(True)
++
+     _reposlist = []
+ 
+     def dump(self):
+diff --git a/yummain.py b/yummain.py
+index fa76af8..ee8d632 100755
+--- a/yummain.py
++++ b/yummain.py
+@@ -209,6 +209,17 @@ def main(args):
+             logger.critical(msg)
+         if unlock(): return 200
+         return 3
++
++    # Mainly for ostree, but might be useful for others.
++    if base.conf.usr_w_check:
++        usrinstpath = base.conf.installroot + "/usr"
++        usrinstpath = usrinstpath.replace('//', '/')
++        if not os.access(usrinstpath, os.W_OK):
++            logger.critical(_('No write access to %s directory') % usrinstpath)
++            logger.critical(_('  Maybe this is an ostree image?'))
++            logger.critical(_('  To disable you can use --setopt=usr_w_check=false'))
++            if unlock(): return 200
++            return 1
+             
+     # Depsolve stage
+     verbose_logger.log(logginglevels.INFO_2, _('Resolving Dependencies'))
+commit 6e64b142014dc3c5489aed7966f0948948054fb7
+Author: James Antill <james@and.org>
+Date:   Wed May 21 18:29:28 2014 -0400
+
+    Check for existance, so mock etc. is happy.
+
+diff --git a/yummain.py b/yummain.py
+index ee8d632..24bbe6c 100755
+--- a/yummain.py
++++ b/yummain.py
+@@ -214,7 +214,8 @@ def main(args):
+     if base.conf.usr_w_check:
+         usrinstpath = base.conf.installroot + "/usr"
+         usrinstpath = usrinstpath.replace('//', '/')
+-        if not os.access(usrinstpath, os.W_OK):
++        if (os.path.exists(usrinstpath) and
++            not os.access(usrinstpath, os.W_OK)):
+             logger.critical(_('No write access to %s directory') % usrinstpath)
+             logger.critical(_('  Maybe this is an ostree image?'))
+             logger.critical(_('  To disable you can use --setopt=usr_w_check=false'))

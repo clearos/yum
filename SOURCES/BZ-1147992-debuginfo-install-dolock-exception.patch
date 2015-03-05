@@ -1,0 +1,18 @@
+commit 221d46dde594ca9b69915ac128fc1a9a19f984a1
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Mon Feb 17 12:31:59 2014 +0100
+
+    Fix debuginfo-install doLock() traceback. BZ 1062479
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 3b6ed82..37ab468 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -2165,6 +2165,7 @@ much more problems).
+                 self._unlock(lockfile)
+                 continue
+             if oldpid == os.getpid(): # if we own the lock, we're fine
++                ret = 1
+                 break
+             # Another copy seems to be running.
+             msg = _('Existing lock %s: another copy is running as pid %s.') % (lockfile, oldpid)

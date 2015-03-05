@@ -1,0 +1,80 @@
+commit 1c557629752d26dca86948c5e933d8f31448818d
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Thu Apr 17 16:15:22 2014 +0200
+
+    Fix traceback when the history dir is empty. BZ 875610
+
+diff --git a/yum/history.py b/yum/history.py
+index 3f20128..2f423d9 100644
+--- a/yum/history.py
++++ b/yum/history.py
+@@ -697,7 +697,9 @@ class YumHistory:
+             break
+ 
+         if self._db_file is None:
+-            self._create_db_file()
++            if not self._create_db_file():
++                # Couldn't create a db file
++                return
+         
+         # make an addon path for where we're going to stick 
+         # random additional history info - probably from plugins and what-not
+@@ -1603,8 +1605,10 @@ class YumHistory:
+             if os.path.exists(_db_file + '-journal'):
+                 os.rename(_db_file  + '-journal', _db_file + '-journal.old')
+         self._db_file = _db_file
++        if not self.conf.writable:
++            return False
+         
+-        if self.conf.writable and not os.path.exists(self._db_file):
++        if not os.path.exists(self._db_file):
+             # make them default to 0600 - sysadmin can change it later
+             # if they want
+             fo = os.open(self._db_file, os.O_CREAT, 0600)
+@@ -1659,6 +1663,7 @@ class YumHistory:
+         for op in self._update_ops_3:
+             cur.execute(op)
+         self._commit()
++        return True
+ 
+ # Pasted from sqlitesack
+ _FULL_PARSE_QUERY_BEG = """
+commit 8c6cd83a4825155d1ee9ddcd29b023682944e3e6
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Mar 12 15:41:30 2014 +0100
+
+    Fix traceback when history files don't exist and user is not root.
+
+diff --git a/yum/history.py b/yum/history.py
+index 6f60f54..3f20128 100644
+--- a/yum/history.py
++++ b/yum/history.py
+@@ -668,6 +668,7 @@ class YumHistory:
+ 
+         self.releasever = releasever
+ 
++        self._db_file = None
+         if not os.path.exists(self.conf.db_path):
+             try:
+                 os.makedirs(self.conf.db_path)
+@@ -680,7 +681,6 @@ class YumHistory:
+                 self.conf.writable = True
+ 
+         DBs = glob.glob('%s/history-*-*-*.sqlite' % self.conf.db_path)
+-        self._db_file = None
+         for d in reversed(sorted(DBs)):
+             fname = os.path.basename(d)
+             fname = fname[len("history-"):-len(".sqlite")]
+diff --git a/yumcommands.py b/yumcommands.py
+index 4e72a71..75b3ce2 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -3051,7 +3051,7 @@ class HistoryCommand(YumCommand):
+         if extcmds and extcmds[0] in ('repeat', 'redo', 'undo', 'rollback', 'new'):
+             checkRootUID(base)
+             checkGPGKey(base)
+-        elif not os.access(base.history._db_file, os.R_OK):
++        elif not (base.history._db_file and os.access(base.history._db_file, os.R_OK)):
+             base.logger.critical(_("You don't have access to the history DB."))
+             raise cli.CliError
+ 

@@ -36,11 +36,11 @@ BuildRequires: bash-completion
 Summary: RPM package installer/updater/manager
 Name: yum
 Version: 3.4.3
-Release: 118%{?dist}
+Release: 125%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
-Source1: yum.conf.centos
+Source1: yum.conf.fedora
 Source2: yum-updatesd.conf.fedora
 Patch1: yum-distro-configs.patch
 Patch5: geode-arch.patch
@@ -62,6 +62,20 @@ patch38: BZ-1040619-yum-cron-reporting.patch
 patch39: BZ-1062959-add-fs-command.patch
 patch40: BZ-1052436-group-bundle-docs.patch
 patch41: BZ-1058297-remove-del-for-weird-anaconda-C-NULL-exception.patch
+
+# rhel-7.1
+Patch100: BZ-1130939-dont-create-lockdir-directories.patch
+Patch101: BZ-1113395-verify-permissions-mask.patch
+Patch102: BZ-1097383-usr-readonly.patch
+Patch103: BZ-1095161-setopt-spaces-handling.patch
+Patch104: BZ-1095157-traceback-when-empty-history.patch
+Patch106: BZ-1138205-needs-restarting.patch
+Patch107: BZ-1102585-variable-substitution.patch
+Patch108: BZ-1096147-history-search-crash.patch
+Patch109: BZ-1087911-update-minimal-manpage.patch
+Patch110: BZ-1063181-upgrades-for-install-only.patch
+Patch111: BZ-1147992-debuginfo-install-dolock-exception.patch
+Patch112: BZ-1095146-file-uris-normpath.patch
 
 URL: http://yum.baseurl.org/
 BuildArchitectures: noarch
@@ -85,7 +99,6 @@ Requires: python-iniparse
 Requires: python-sqlite
 Requires: python-urlgrabber >= 3.9.0-8
 Requires: yum-metadata-parser >= 1.1.0
-Requires: yum-plugin-fastestmirror
 Requires: pygpgme
 # rawhide is >= 0.5.3-7.fc18 ... as this is added.
 Requires: pyliblzma
@@ -204,6 +217,20 @@ Install this package if you want auto yum updates nightly via cron.
 %patch39 -p1
 %patch40 -p1
 %patch41 -p1
+
+# rhel-7.1
+%patch100 -p1
+%patch101 -p1
+%patch102 -p1
+%patch103 -p1
+%patch104 -p1
+%patch106 -p1
+%patch107 -p1
+%patch108 -p1
+%patch109 -p1
+%patch110 -p1
+%patch111 -p1
+%patch112 -p1
 
 # Do distro config. changes after everything else.
 %patch1 -p1
@@ -431,11 +458,47 @@ exit 0
 %endif
 
 %changelog
-* Fri Jun 27 2014 Karanbir Singh <kbsingh@centos.org> - 3.4.3-118.el7.centos
-- Make yum require yum-plugin-fastestmirror
-- use the CentOS bug tracker url 
-- retain 5 for installonlyn
-- ensure distrover is always from centos-release
+* Mon Jan 12 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-125
+- Roll back the broken lvm patch.
+- Related: bug#1047793
+
+* Thu Nov 13 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-124
+- normpath() file URIs.
+- Resolves: bug#1095146
+
+* Mon Nov 10 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-123
+- Fix debuginfo-install doLock() traceback.
+- Resolves: bug#1147992
+
+* Mon Sep 29 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-122
+- Don't look for upgrades for install only packages.
+- Resolves: bug#1063181
+
+* Wed Sep 24 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-121
+- Fix variable substitution.
+- Resolves: bug#1102585
+- Fix history searching for [abc] character lists failures.
+- Resolves: bug#1096147
+- Fix update-minimal command in the man page.
+- Resolves: bug#1087911
+
+* Thu Sep  4 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-120
+- Fix and refactor utils.get_process_info().
+- Resolves: bug#1138205
+
+* Thu Sep  4 2014 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-119
+- Don't create lockdir directories.
+- Resolves: rhbz#1130939
+- Mask st_mode to fix verifying permissions for ghost files.
+- Resolves: rhbz#1113395
+- Check /usr for writability before running a transaction.
+- Resolves: rhbz#1097383
+- Make --setopt handle spaces properly.
+- Resolves: rhbz#1095161
+- Fix traceback when the history dir is empty.
+- Resolves: rhbz#1095157
+- Test for lvm binary before using.
+- Resolves: rhbz#1047793
 
 * Tue Apr 15 2014 James Antill <james.antill@redhat.com> - 3.4.3-118
 - Remove CHUNK argument from open() for weird anaconda C NULL exception.

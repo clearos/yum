@@ -1,0 +1,69 @@
+commit 28cc43d16664a408f7e4315767230544d7f52618
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Mon May 19 16:21:46 2014 +0200
+
+    Replace vars in include lines in .repo files. BZ 977380
+
+diff --git a/yum/parser.py b/yum/parser.py
+index b165ef2..5110cb5 100644
+--- a/yum/parser.py
++++ b/yum/parser.py
+@@ -18,6 +18,8 @@ def varReplace(raw, vars):
+     @return: Input raw string with substituted values.
+     '''
+ 
++    if not vars:
++        return raw
+     done = []                      # Completed chunks to return
+ 
+     while raw:
+@@ -136,6 +138,7 @@ class ConfigPreProcessor:
+                              'Error parsing config %s: include must specify file to include.' % (self.name)
+                     else:
+                         # whooohoo a valid include line.. push it on the stack
++                        url = varReplace(url, self._vars)
+                         fo = self._pushfile( url )
+                 else:
+                     # check if the current line starts a new section
+@@ -156,9 +159,7 @@ class ConfigPreProcessor:
+             line = line.lstrip()
+         # at this point we have a line from the topmost file on the stack
+         # or EOF if the stack is empty
+-        if self._vars:
+-            return varReplace(line, self._vars)
+-        return line
++        return varReplace(line, self._vars)
+     
+     
+     def _absurl( self, url ):
+commit 04c46c81f556e3e5ee72630f9501e243d00528a7
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Jun 11 11:13:00 2014 +0200
+
+    Read env vars in readStartupConfig() to make them work in yum.conf. BZ 1102575
+
+diff --git a/yum/config.py b/yum/config.py
+index f0f4e96..6e0ecdc 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -1042,6 +1042,11 @@ def readStartupConfig(configfile, root, releasever=None):
+     startupconf.config_file_path = configfile
+     parser = ConfigParser()
+     confpp_obj = ConfigPreProcessor(configfile)
++
++    yumvars = _getEnvVar()
++    confpp_obj._vars = yumvars
++    startupconf.yumvars = yumvars
++
+     try:
+         parser.readfp(confpp_obj)
+     except ParsingError, e:
+@@ -1076,7 +1081,7 @@ def readMainConfig(startupconf):
+     # ' xemacs syntax hack
+ 
+     # Set up substitution vars
+-    yumvars = _getEnvVar()
++    yumvars = startupconf.yumvars
+     yumvars['basearch'] = startupconf.basearch
+     yumvars['arch'] = startupconf.arch
+     yumvars['releasever'] = startupconf.releasever

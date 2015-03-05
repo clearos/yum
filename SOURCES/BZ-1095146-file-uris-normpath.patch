@@ -1,0 +1,18 @@
+commit bec81af1bffdd3c3511ad8861fb66b376bee89e9
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Thu Mar 27 16:56:19 2014 +0100
+
+    normpath() file URIs. BZ 1009499
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 84ca658..ac01435 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -562,6 +562,7 @@ class YumBase(depsolve.Depsolve):
+             # if we don't do this then anaconda likes to not  work.
+             if os.path.exists(self.conf.installroot+'/'+reposdir):
+                 reposdir = self.conf.installroot + '/' + reposdir
++            reposdir = os.path.normpath(reposdir)
+ 
+             if os.path.isdir(reposdir):
+                 for repofn in sorted(glob.glob('%s/*.repo' % reposdir)):

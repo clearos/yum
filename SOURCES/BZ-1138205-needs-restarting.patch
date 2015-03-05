@@ -1,0 +1,75 @@
+commit 7ef0f4ad556e3d4bfe0eeebd1f110de745adec3c
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Mar 19 16:24:58 2014 +0100
+
+    Make utils.get_process_info() respect executable names with spaces.
+
+diff --git a/utils.py b/utils.py
+index 0b7191c..b00d312 100755
+--- a/utils.py
++++ b/utils.py
+@@ -114,18 +114,20 @@ def get_process_info(pid):
+             break
+     if boot_time is None:
+         return
+-    ps_stat = open("/proc/%d/stat" % pid).read().split()
+-    ps['utime'] = jiffies_to_seconds(ps_stat[13])
+-    ps['stime'] = jiffies_to_seconds(ps_stat[14])
+-    ps['cutime'] = jiffies_to_seconds(ps_stat[15])
+-    ps['cstime'] = jiffies_to_seconds(ps_stat[16])
+-    ps['start_time'] = boot_time + jiffies_to_seconds(ps_stat[21])
++    ps_stat = open("/proc/%d/stat" % pid).read().strip()
++    # Filename of the executable might contain spaces, so we throw it away
++    ps_stat = ps_stat[ps_stat.rfind(')') + 2:].split()
++    ps['utime'] = jiffies_to_seconds(ps_stat[11])
++    ps['stime'] = jiffies_to_seconds(ps_stat[12])
++    ps['cutime'] = jiffies_to_seconds(ps_stat[13])
++    ps['cstime'] = jiffies_to_seconds(ps_stat[14])
++    ps['start_time'] = boot_time + jiffies_to_seconds(ps_stat[19])
+     ps['state'] = {'R' : _('Running'),
+                    'S' : _('Sleeping'),
+                    'D' : _('Uninterruptible'),
+                    'Z' : _('Zombie'),
+                    'T' : _('Traced/Stopped')
+-                   }.get(ps_stat[2], _('Unknown'))
++                   }.get(ps_stat[0], _('Unknown'))
+                    
+     return ps
+ 
+commit cf0464bea74f6e8d4650afee4e66d66bff2bc9a1
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Mar 19 17:19:32 2014 +0100
+
+    Refactored utils.get_process_info() to make parts of it reusable.
+
+diff --git a/utils.py b/utils.py
+index b00d312..dbcd605 100755
+--- a/utils.py
++++ b/utils.py
+@@ -107,13 +107,21 @@ def get_process_info(pid):
+         return
+     if 'vmsize' not in ps:
+         return
+-    boot_time = None
+-    for line in open("/proc/stat"):
+-        if line.startswith("btime "):
+-            boot_time = int(line[len("btime "):-1])
+-            break
++    boot_time = get_boot_time()
+     if boot_time is None:
+         return
++    ps.update(get_process_time(pid, boot_time))
++    return ps
++
++
++def get_boot_time():
++    for line in open("/proc/stat"):
++        if line.startswith("btime "):
++            return int(line[len("btime "):-1])
++
++
++def get_process_time(pid, boot_time):
++    ps = {}
+     ps_stat = open("/proc/%d/stat" % pid).read().strip()
+     # Filename of the executable might contain spaces, so we throw it away
+     ps_stat = ps_stat[ps_stat.rfind(')') + 2:].split()
