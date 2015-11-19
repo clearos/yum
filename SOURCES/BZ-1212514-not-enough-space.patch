@@ -1,0 +1,57 @@
+commit 7b125d415195713596c798e8ac79e4812873d948
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Tue Dec 9 10:27:40 2014 +0100
+
+    Expect KB as well as MB in disk requirements message from rpm. BZ 1051931
+
+diff --git a/cli.py b/cli.py
+index b7f5b5a..f04fe63 100755
+--- a/cli.py
++++ b/cli.py
+@@ -498,13 +498,14 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+         """
+         summary = ''
+         # do disk space report first
+-        p = re.compile('needs (\d+)MB on the (\S+) filesystem')
++        p = re.compile('needs (\d+)(K|M)B on the (\S+) filesystem')
+         disk = {}
+         for m in p.finditer(errstring):
+-            if m.group(2) not in disk:
+-                disk[m.group(2)] = int(m.group(1))
+-            if disk[m.group(2)] < int(m.group(1)):
+-                disk[m.group(2)] = int(m.group(1))
++            size_in_mb = int(m.group(1)) if m.group(2) == 'M' else round(int(m.group(1))/1024.0, 3)
++            if m.group(3) not in disk:
++                disk[m.group(3)] = size_in_mb
++            if disk[m.group(3)] < size_in_mb:
++                disk[m.group(3)] = size_in_mb
+                 
+         if disk:
+             summary += _('Disk Requirements:\n')
+commit 6ea8a6cf572efa7d7601dfc8535f5cc3cd80c3bd
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Tue Mar 17 11:19:10 2015 +0100
+
+    Fix rounding issue in required disk space message.
+
+diff --git a/cli.py b/cli.py
+index cefc67e..9766f89 100755
+--- a/cli.py
++++ b/cli.py
+@@ -25,6 +25,7 @@ import sys
+ import time
+ import random
+ import logging
++import math
+ from optparse import OptionParser,OptionGroup,SUPPRESS_HELP
+ import rpm
+ 
+@@ -501,7 +502,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+         p = re.compile('needs (\d+)(K|M)B on the (\S+) filesystem')
+         disk = {}
+         for m in p.finditer(errstring):
+-            size_in_mb = int(m.group(1)) if m.group(2) == 'M' else round(int(m.group(1))/1024.0, 3)
++            size_in_mb = int(m.group(1)) if m.group(2) == 'M' else math.ceil(int(m.group(1))/1024.0)
+             if m.group(3) not in disk:
+                 disk[m.group(3)] = size_in_mb
+             if disk[m.group(3)] < size_in_mb:

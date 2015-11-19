@@ -1,0 +1,113 @@
+commit d875b67997356e7e1b4509607fec81ca8220c597
+Author: James Antill <james@and.org>
+Date:   Tue Mar 3 01:54:02 2015 -0500
+
+    Add query_install_excludes conf./docs and use it for list/info/search/provides.
+
+diff --git a/cli.py b/cli.py
+index f04fe63..cefc67e 100755
+--- a/cli.py
++++ b/cli.py
+@@ -2299,7 +2299,8 @@ class YumOptionParser(OptionParser):
+             self.base.conf.disable_excludes = self._splitArg(opts.disableexcludes)
+             self.base.conf.disable_includes = self._splitArg(opts.disableincludes)
+ 
+-            for exclude in self._splitArg(opts.exclude):
++            self.base.cmdline_excludes = self._splitArg(opts.exclude)
++            for exclude in self.base.cmdline_excludes:
+                 try:
+                     excludelist = self.base.conf.exclude
+                     excludelist.append(exclude)
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index e0f4c8b..62aa78e 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -156,10 +156,20 @@ This is commonly used so a package isn't upgraded or installed accidentally, but
+ can be used to remove packages in any way that "yum list" will show packages.
+ Shell globs using wildcards (eg. * and ?) are allowed.
+ 
+-Can be disabled using --disableexcludes.
++Can be disabled using disable_excludes or --disableexcludes.
+ Command-line option: \fB\-x\fP
+ 
+ .IP
++\fBdisable_excludes\fR
++A way to permanently set the --disableexcludes command line option.
++
++.IP
++\fBquery_install_excludes\fR
++This applies the command line exclude option (only, not the configuration
++exclude above) to installed packages being shown in some query commands
++(currently: list/info/search/provides).
++
++.IP
+ \fBinstallonlypkgs \fR
+ List of package provides that should only ever be installed, never updated.
+ Kernels in particular fall into this category. Defaults to kernel,
+diff --git a/output.py b/output.py
+index 2787d86..091b58e 100755
+--- a/output.py
++++ b/output.py
+@@ -1330,6 +1330,13 @@ class YumOutput:
+         :param verbose: whether to output extra verbose information
+         :param highlight: highlighting options for the highlighted matches
+         """
++        if (po.repo.id == "installed" and
++            self.conf.query_install_excludes and self.cmdline_excludes):
++            # Very similar to _cmdline_exclude from yumcommands
++            e,m,u = yum.packages.parsePackages([po], self.cmdline_excludes)
++            if e or m:
++                return
++
+         if self.conf.showdupesfromrepos:
+             msg = '%s : ' % po
+         else:
+diff --git a/yum/config.py b/yum/config.py
+index 02061ba..efe7be9 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -821,6 +821,7 @@ class YumConf(StartupConf):
+     # XXX rpm_check_debug is unused, left around for API compatibility for now
+     rpm_check_debug = BoolOption(True)
+     disable_excludes = ListOption()    
++    query_install_excludes = BoolOption(True)
+     skip_broken = BoolOption(False)
+     #  Note that "instant" is the old behaviour, but group:primary is very
+     # similar but better :).
+diff --git a/yumcommands.py b/yumcommands.py
+index e77d209..6fa11fa 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -41,6 +41,7 @@ import errno
+ 
+ import yum.config
+ from yum import updateinfo
++from yum.packages import parsePackages
+ 
+ def _err_mini_usage(base, basecmd):
+     if basecmd not in base.yum_cli_commands:
+@@ -584,6 +585,14 @@ def _list_cmd_calc_columns(base, ypl):
+     columns = base.calcColumns(data, remainder_column=1)
+     return (-columns[0], -columns[1], -columns[2])
+ 
++def _cmdline_exclude(pkgs, cmdline_excludes):
++    """ Do an extra exclude for installed packages that match the cmd line. """
++    if not cmdline_excludes:
++        return pkgs
++    e,m,u = parsePackages(pkgs, cmdline_excludes)
++    excluded = set(e + m)
++    return [po for po in pkgs if po not in excluded]
++
+ class InfoCommand(YumCommand):
+     """A class containing methods needed by the cli to execute the
+     info command.
+@@ -682,6 +691,9 @@ class InfoCommand(YumCommand):
+             clin = base.conf.color_list_installed_newer
+             clir = base.conf.color_list_installed_reinstall
+             clie = base.conf.color_list_installed_extra
++            if base.conf.query_install_excludes:
++                ypl.installed = _cmdline_exclude(ypl.installed,
++                                                 base.cmdline_excludes)
+             rip = base.listPkgs(ypl.installed, _('Installed Packages'), basecmd,
+                                 highlight_na=update_pkgs, columns=columns,
+                                 highlight_modes={'>' : clio, '<' : clin,

@@ -36,11 +36,11 @@ BuildRequires: bash-completion
 Summary: RPM package installer/updater/manager
 Name: yum
 Version: 3.4.3
-Release: 125%{?dist}
+Release: 132%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
-Source1: yum.conf.centos
+Source1: yum.conf.fedora
 Source2: yum-updatesd.conf.fedora
 Patch1: yum-distro-configs.patch
 Patch5: geode-arch.patch
@@ -77,6 +77,25 @@ Patch110: BZ-1063181-upgrades-for-install-only.patch
 Patch111: BZ-1147992-debuginfo-install-dolock-exception.patch
 Patch112: BZ-1095146-file-uris-normpath.patch
 
+# rhel-7.2
+Patch150: BZ-1192239-update-minimal.patch
+Patch151: BZ-1212514-not-enough-space.patch
+Patch152: BZ-1212506-running-kernel-epoch.patch
+Patch153: BZ-1168385-group-conditionals-deselect.patch
+Patch154: BZ-1182096-yum-cron-conf-upgrade-minimal.patch
+Patch155: BZ-1212519-exclude-installed.patch
+Patch156: BZ-1063177-xml-traceback.patch
+Patch157: BZ-1211384-yum-grouplist-headers.patch
+Patch158: BZ-1193871-updateinfo-notice-when-arch-changed.patch
+Patch159: BZ-1047793-lvm-snapshot.patch
+Patch160: BZ-1168120-manpage.patch
+Patch161: BZ-1182075-yum-security-manpage.patch
+Patch162: BZ-1199976-kbase-articles.patch
+Patch163: BZ-1188960-API-missing-requires.patch
+Patch164: BZ-1233152-pvm-api-lv_attr.patch
+Patch165: BZ-1244119-fssnapshot-automatic-percentage-manpage.patch
+Patch166: BZ-1259837-igroups-empty-lines.patch
+
 URL: http://yum.baseurl.org/
 BuildArchitectures: noarch
 BuildRequires: python
@@ -94,7 +113,6 @@ BuildRequires: pygpgme
 # End of CheckRequires
 Conflicts: pirut < 1.1.4
 Requires: python >= 2.4
-Requires: yum-plugin-fastestmirror
 Requires: rpm-python, rpm >= 0:4.4.2
 Requires: python-iniparse
 Requires: python-sqlite
@@ -232,6 +250,25 @@ Install this package if you want auto yum updates nightly via cron.
 %patch110 -p1
 %patch111 -p1
 %patch112 -p1
+
+# rhel-7.2
+%patch150 -p1
+%patch151 -p1
+%patch152 -p1
+%patch153 -p1
+%patch154 -p1
+%patch155 -p1
+%patch156 -p1
+%patch157 -p1
+%patch158 -p1
+%patch159 -p1
+%patch160 -p1
+%patch161 -p1
+%patch162 -p1
+%patch163 -p1
+%patch164 -p1
+%patch165 -p1
+%patch166 -p1
 
 # Do distro config. changes after everything else.
 %patch1 -p1
@@ -459,12 +496,65 @@ exit 0
 %endif
 
 %changelog
-* Thu Mar 05 2015 CentOS Sources <bugs@centos.org> - 3.4.3-125.el7.centos
-- CentOS yum config
--  use the CentOS bug tracker url
--  retain installonly limit of 5
--  ensure distrover is always from centos-release
-- Make yum require yum-plugin-fastestmirror
+* Wed Sep 09 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-132
+- Don't fail on empty lines in group files.
+- Resolves: bug#1259837
+
+* Wed Aug 12 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-131
+- Update not enough space messages for fssnapshot.
+- Related: bug#1047793
+
+* Thu Jul 30 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-130
+- Fix fssnap_automatic_devices and fssnap_automatic_percentage in yum.conf manpage.
+- Resolves: bug#1244119
+
+* Mon Jul 13 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-129
+- Fix UnboundLocalError in deselect().
+- Related: bug#1168385
+- Update the URL of kcs article.
+- Related: bug#1200338
+
+* Thu Jul 09 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-128
+- Stop caching fssnapshot postfixes and add microseconds.
+- Related: bug#1047793
+
+* Wed Jul 01 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-127
+- Fix lvm API calls. Patch by Marek Marusic.
+- Resolves: bug#1233152
+
+* Thu May 21 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-126
+- Fix update-minimal traceback and ignoring updates.
+- Resolves: bug#1192239
+- Expect KB as well as MB in disk requirements message from rpm.
+- Resolves: bug#1212514
+- Make sure epoch is a string while checking for running kernel.
+- Resolves: bug#1212506
+- Fix tsInfo.conditionals in deselect() when the package is not yet in the transaction.
+- Resolves: bug#1168385
+- Replace 'upgrade-minimal' with documented 'update-minimal' in yum-cron.conf files.
+- Resolves: bug#1182096
+- Add query_install_excludes conf./docs and use it for list/info/search/provides.
+- Resolves: bug#1212519
+- Don't traceback on xml parsing.
+- Resolves: bug#1063177
+- Fix casing of 'yum grouplist' headers.
+- Resolves: bug#1211384
+- Show advisory even if package arch changed.
+- Resolves: bug#1193871
+- Add fssnap_abort_on_errors config option and improve detecting if lvm is installed.
+- Resolves: bug#1047793
+- Fix default for fssnap_automatic_keep in the man page and dad logging for automatic fssnap events.
+- Resolves: bug#1145485
+- yum manpage: move 'history info' description to its proper place.
+- Resolves: bug#1168120
+- Add missing documentation from yum-security manpage.
+- Resolves: bug#1182075
+- Add links to knowledge base articles for http errors 404 and 403 and curl error 60.
+- Resolves: bug#1199976
+- Resolves: bug#1200312
+- Resolves: bug#1200338
+- API v2.7: missing_requires, pretty_output_update, promptYN fix, confList.
+- Resolves: bug#1188960
 
 * Mon Jan 12 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-125
 - Roll back the broken lvm patch.

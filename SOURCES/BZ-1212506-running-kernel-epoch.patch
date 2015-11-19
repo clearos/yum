@@ -1,0 +1,19 @@
+commit fefb6a732e0c15c73300858c3fa7d7e89e79d18f
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Mar 11 10:52:49 2015 +0100
+
+    Make sure epoch is a string while checking for running kernel. BZ#1200159
+
+diff --git a/yum/misc.py b/yum/misc.py
+index 6850ae2..f72f028 100644
+--- a/yum/misc.py
++++ b/yum/misc.py
+@@ -818,6 +818,8 @@ def get_running_kernel_pkgtup(ts):
+             e = h['epoch']
+             if h['epoch'] is None:
+                 e = '0'
++            else:
++                e = str(e)
+             return (h['name'], h['arch'], e, h['version'], h['release'])
+     
+     return (None, None, None, None, None)

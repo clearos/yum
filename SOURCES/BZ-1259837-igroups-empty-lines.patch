@@ -1,0 +1,48 @@
+diff -up yum-3.4.3/yum/igroups.py.old yum-3.4.3/yum/igroups.py
+--- yum-3.4.3/yum/igroups.py.old	2015-09-09 16:18:23.494390878 +0200
++++ yum-3.4.3/yum/igroups.py	2015-09-09 17:10:33.451517354 +0200
+@@ -43,6 +43,12 @@ def _makedirs_no_umask(*args):
+ 
+     return ret
+ 
++def _read_str(fo):
++    for s in fo:
++        if s[:-1]:
++            return s[:-1]
++    return ''
++
+ class InstalledGroup(object):
+     def __init__(self, gid):
+         self.gid       = gid
+@@ -107,11 +113,11 @@ class InstalledGroups(object):
+         if not os.access(self.filename, os.R_OK):
+             return
+ 
+-        def _read_str(fo):
+-            return fo.readline()[:-1]
+-
+         fo = open(self.filename)
+-        ver = int(_read_str(fo))
++        try:
++            ver = int(_read_str(fo))
++        except ValueError:
++            return
+         if ver != 1:
+             return
+ 
+@@ -132,11 +138,11 @@ class InstalledGroups(object):
+         if not os.access(self.grp_filename, os.R_OK):
+             return
+ 
+-        def _read_str(fo):
+-            return fo.readline()[:-1]
+-
+         fo = open(self.grp_filename)
+-        ver = int(_read_str(fo))
++        try:
++            ver = int(_read_str(fo))
++        except ValueError:
++            return
+         if ver != 1:
+             return
+ 

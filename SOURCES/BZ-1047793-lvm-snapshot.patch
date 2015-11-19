@@ -1,0 +1,297 @@
+commit 13bbacb4dd25b83cd29389e0608fde1614537257
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Mon Jan 12 15:21:46 2015 +0100
+
+     Multiple lvm fixes. BZ 1047793, BZ 1145485
+    - add fssnap_abort_on_errors config option
+    - fix default for fssnap_automatic_keep in the man page
+    - add logging for automatic fssnap events
+    - add lvm binary path test to _FSSnap.available
+    - check for lvm2 and lvm2-python-libs packages instead of python-lvm
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index 998a5ad..a0038f6 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -741,7 +741,7 @@ then you can create and delete snapshots using:
+ .br 
+ 
+ .br
+-Configuration Options: \fBfssnap_automatic_pre\fP, \fBfssnap_automatic_post\fP, \fBfssnap_automatic_keep\fP, \fBfssnap_percentage\fP, \fBfssnap_devices\fP
++Configuration Options: \fBfssnap_automatic_pre\fP, \fBfssnap_automatic_post\fP, \fBfssnap_automatic_keep\fP, \fBfssnap_percentage\fP, \fBfssnap_devices\fP, \fBfssnap_abort_on_errors\fP
+ 
+ .IP
+ .IP "\fBfs\fP"
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 0362e85..272e07b 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -873,7 +873,7 @@ Boolean (1, 0, True, False, yes, no) Defaults to False
+ .IP
+ \fBfssnap_automatic_keep\fR
+ How many old snapshots should yum keep when trying to automatically create a 
+-new snapshot. Setting to 0 disables this feature. Default is '0'.
++new snapshot. Setting to 0 disables this feature. Default is '1'.
+ 
+ .IP
+ \fBfssnap_automatic_percentage\fR
+@@ -887,6 +887,21 @@ first match (positive or negative) wins.
+ Default is: !*/swap !*/lv_swap glob:/etc/yum/fssnap.d/*.conf
+ 
+ .IP
++\fBfssnap_abort_on_errors\fR
++When fssnap_automatic_pre or fssnap_automatic_post is enabled, it's possible to specify which
++fssnap errors should make the transaction fail. The default is `any'.
++
++`broken-setup' - Abort current transaction if snapshot support is unavailable because
++lvm is missing or broken.
++
++`snapshot-failure' - Abort current transaction if creating a snapshot fails (e.g. there is not enough
++free space to make a snapshot).
++
++`any' - Abort current transaction if any of the above occurs.
++
++`none' - Never abort a transaction in case of errors.
++
++.IP
+ \fBdepsolve_loop_limit\fR
+ Set the number of times any attempt to depsolve before we just give up. This
+ shouldn't be needed as yum should always solve or fail, however it has been
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 6d2c078..347aa7c 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -1727,6 +1727,13 @@ much more problems).
+         :raises: :class:`yum.Errors.YumRPMTransError` if there is a
+            transaction cannot be completed
+         """
++        if (self.conf.fssnap_automatic_pre or self.conf.fssnap_automatic_post) and not self.fssnap.available:
++            msg = _("Snapshot support not available.")
++            if self.conf.fssnap_abort_on_errors in ('broken-setup', 'any'):
++                raise Errors.YumRPMTransError(msg="Aborting transaction.", errors=msg)
++            else:
++                self.verbose_logger.critical(msg)
++
+         if self.fssnap.available and ((self.conf.fssnap_automatic_pre or
+                                        self.conf.fssnap_automatic_post) and
+                                       self.conf.fssnap_automatic_keep):
+@@ -1748,17 +1755,30 @@ much more problems).
+                 if num > self.conf.fssnap_automatic_keep:
+                     todel.append(snap['dev'])
+             # Display something to the user?
+-            self.fssnap.del_snapshots(devices=todel)
++            snaps = self.fssnap.del_snapshots(devices=todel)
++            if len(snaps):
++                self.verbose_logger.info(_("Deleted %u snapshots.") % len(snaps))
+ 
+         if (self.fssnap.available and
+             (not self.ts.isTsFlagSet(rpm.RPMTRANS_FLAG_TEST) and
+             self.conf.fssnap_automatic_pre)):
+             if not self.fssnap.has_space(self.conf.fssnap_percentage):
+-                msg = _("Not enough space to create pre. FS snapshot, aborting transaction.")
+-                raise Errors.YumRPMTransError(msg=msg, errors=[])
++                msg = _("Not enough space to create pre. FS snapshot.")
++                if self.conf.fssnap_abort_on_errors in ('snapshot-failure', 'any'):
++                    raise Errors.YumRPMTransError(msg="Aborting transaction", errors=msg)
++                else:
++                    self.verbose_logger.critical(msg)
+             else:
+                 tags = {'*': ['reason=automatic']} # FIXME: pre. tags
+-                self.fssnap.snapshot(self.conf.fssnap_percentage, tags=tags)
++                snaps = self.fssnap.snapshot(self.conf.fssnap_percentage, tags=tags)
++                if not snaps:
++                    msg = _("Failed to create snapshot")
++                    if self.conf.fssnap_abort_on_errors in ('snapshot-failure', 'any'):
++                        raise Errors.YumRPMTransError(msg="Aborting transaction", errors=msg)
++                    else:
++                        self.verbose_logger.critical(msg)
++                for (odev, ndev) in snaps:
++                    self.verbose_logger.info(_("Created snapshot from %s, results is: %s") % (odev, ndev))
+ 
+         self.plugins.run('pretrans')
+ 
+@@ -1895,11 +1915,14 @@ much more problems).
+             self.conf.fssnap_automatic_post)):
+             if not self.fssnap.has_space(self.conf.fssnap_percentage):
+                 msg = _("Not enough space to create post trans FS snapshot.")
+-                self.logger.critical(msg)
++                self.verbose_logger.critical(msg)
+             else:
+                 tags = {'*': ['reason=automatic']} # FIXME: post tags
+-                self.fssnap.snapshot(self.conf.fssnap_percentage, tags=tags)
+-
++                snaps = self.fssnap.snapshot(self.conf.fssnap_percentage, tags=tags)
++                if not snaps:
++                    self.verbose_logger.critical(_("Failed to create snapshot"))
++                for (odev, ndev) in snaps:
++                    self.verbose_logger.info(_("Created snapshot from %s, results is: %s") % (odev, ndev))
+         return resultobject
+ 
+     def verifyTransaction(self, resultobject=None, txmbr_cb=None):
+diff --git a/yum/config.py b/yum/config.py
+index 8eab5bc..02061ba 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -899,6 +899,7 @@ class YumConf(StartupConf):
+     fssnap_devices = ListOption("!*/swap !*/lv_swap "
+                                 "glob:/etc/yum/fssnap.d/*.conf",
+                                 parse_default=True)
++    fssnap_abort_on_errors = SelectionOption('any', ('broken-setup', 'snapshot-failure', 'any', 'none'))
+ 
+     depsolve_loop_limit = PositiveIntOption(100, names_of_0=["<forever>"])
+ 
+diff --git a/yum/fssnapshots.py b/yum/fssnapshots.py
+index e912ea1..9af252d 100755
+--- a/yum/fssnapshots.py
++++ b/yum/fssnapshots.py
+@@ -146,7 +143,8 @@ class _FSSnap(object):
+             devices = []
+ 
+         self.version = _ver
+-        self.available = bool(lvm)
++        # Parts of the API seem to work even when lvm is not actually installed, hence the path test
++        self.available = bool(lvm and os.path.exists("/sbin/lvm"))
+         self.postfix_static = "_yum_"
+         self._postfix = None
+         self._root = root
+diff --git a/yumcommands.py b/yumcommands.py
+index a18bc5c..e77d209 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4264,11 +4264,13 @@ class FSSnapshotCommand(YumCommand):
+             subcommand = 'summary'
+ 
+         if not base.fssnap.available:
+-            if not base.rpmdb.searchNames(['python-lvm']):
+-                print _("Snapshot support not available, no python-lvm package installed.")
+-            else:
+-                print _("Snapshot support not available, python-lvm is old/broken.")
+-            return 0, [basecmd + ' ' + subcommand + ' done']
++            msg = _("Snapshot support not available, please check your lvm installation.")
++            if not base.rpmdb.searchNames(['lvm2']):
++                msg += " " + _("No lvm2 package installed.")
++            if not base.rpmdb.searchNames(['lvm2-python-libs']):
++                msg += " " + _("No lvm2-python-libs package installed.")
++            print msg
++            return 1, [basecmd + ' ' + subcommand + ' done']
+ 
+         if subcommand == 'list':
+             snaps = base.fssnap.old_snapshots()
+@@ -4301,10 +4303,11 @@ class FSSnapshotCommand(YumCommand):
+         if subcommand == 'create':
+             tags = {'*': ['reason=manual']}
+             pc = base.conf.fssnap_percentage
+-            for (odev, ndev) in base.fssnap.snapshot(pc, tags=tags):
+-                print _("Created snapshot from %s, results is: %s") %(odev,ndev)
+-            else:
++            snaps = base.fssnap.snapshot(pc, tags=tags)
++            if not snaps:
+                 print _("Failed to create snapshots")
++            for (odev, ndev) in snaps:
++                print _("Created snapshot from %s, results is: %s") %(odev,ndev)
+ 
+         if subcommand == 'summary':
+             snaps = base.fssnap.old_snapshots()
+commit 29440b1175411c3ccaca6010df8dec2d96088fbd
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Thu Jul 9 15:26:29 2015 +0200
+
+    Stop caching fssnapshot postfixes and add microseconds
+
+diff --git a/yum/fssnapshots.py b/yum/fssnapshots.py
+index a07271d..10ec012 100755
+--- a/yum/fssnapshots.py
++++ b/yum/fssnapshots.py
+@@ -3,6 +3,7 @@
+ import os
+ import fnmatch
+ import time
++from datetime import datetime
+ 
+ import subprocess
+ 
+@@ -228,23 +229,13 @@ class _FSSnap(object):
+ 
+         return ret
+ 
+-    def _get_postfix(self):
+-        if self._postfix is None:
+-            self._postfix = self.postfix_static
+-            self._postfix += time.strftime("%Y%m%d%H%M%S")
+-        return self._postfix
+-
+-    postfix = property(fget=lambda self: self._get_postfix(),
+-                       fset=lambda self, value: setattr(self, "_postfix",value),
+-                       fdel=lambda self: setattr(self, "_postfix", None),
+-                       doc="postfix for snapshots")
+ 
+     def snapshot(self, percentage=100, prefix='', postfix=None, tags={}):
+         """ Attempt to take a snapshot, note that errors can happen after
+             this function succeeds. """
+ 
+         if postfix is None:
+-            postfix = self.postfix
++            postfix = '%s%s' % (self.postfix_static, datetime.now().strftime("%Y%m%d%H%M%S.%f"))
+ 
+         ret = []
+         for vgname in self._vgnames:
+commit 2678b0a2eb042e011bcafb507eae5ea3565c9110
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Mon Jul 13 16:28:32 2015 +0200
+
+    Test for lvm binary before using.
+
+diff --git a/yum/fssnapshots.py b/yum/fssnapshots.py
+index 10ec012..70f80a0 100755
+--- a/yum/fssnapshots.py
++++ b/yum/fssnapshots.py
+@@ -155,7 +155,7 @@ class _FSSnap(object):
+         if not self._devs:
+             return
+ 
+-        self._vgnames = _list_vg_names()
++        self._vgnames = _list_vg_names() if self.available else []
+ 
+     def _use_dev(self, vgname, lv=None):
+ 
+commit e756473a1b01f40f087488f72d002d9993843a84
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Aug 12 12:54:55 2015 +0200
+
+    Update not enough space messages for fssnapshot
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 48956e9..84bea3e 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -1773,7 +1773,7 @@ much more problems).
+             (not self.ts.isTsFlagSet(rpm.RPMTRANS_FLAG_TEST) and
+             self.conf.fssnap_automatic_pre)):
+             if not self.fssnap.has_space(self.conf.fssnap_percentage):
+-                msg = _("Not enough space to create pre. FS snapshot.")
++                msg = _("Not enough space on logical volumes to create pre. FS snapshot.")
+                 if self.conf.fssnap_abort_on_errors in ('snapshot-failure', 'any'):
+                     raise Errors.YumRPMTransError(msg="Aborting transaction", errors=msg)
+                 else:
+@@ -1926,7 +1926,7 @@ much more problems).
+             (not self.ts.isTsFlagSet(rpm.RPMTRANS_FLAG_TEST) and
+             self.conf.fssnap_automatic_post)):
+             if not self.fssnap.has_space(self.conf.fssnap_percentage):
+-                msg = _("Not enough space to create post trans FS snapshot.")
++                msg = _("Not enough space on logical volumes to create post trans FS snapshot.")
+                 self.verbose_logger.critical(msg)
+             else:
+                 tags = {'*': ['reason=automatic']} # FIXME: post tags
+diff --git a/yumcommands.py b/yumcommands.py
+index 4a39ddb..5234260 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4311,7 +4311,7 @@ class FSSnapshotCommand(YumCommand):
+             if base.fssnap.has_space(pc):
+                 print _("Space available to take a snapshot.")
+             else:
+-                print _("Not enough space available to take a snapshot.")
++                print _("Not enough space available on logical volumes to take a snapshot.")
+ 
+         if subcommand == 'create':
+             tags = {'*': ['reason=manual']}

@@ -1,0 +1,40 @@
+commit cc4dc5b663b0be13fe6bf4de96458f87c90793ad
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Thu May 21 11:08:06 2015 +0200
+
+    Replace 'upgrade-minimal' with documented 'update-minimal' in yum-cron.conf files. BZ#1182096
+
+diff --git a/etc/yum-cron-hourly.conf b/etc/yum-cron-hourly.conf
+index 2a588cd..63c0bb6 100644
+--- a/etc/yum-cron-hourly.conf
++++ b/etc/yum-cron-hourly.conf
+@@ -3,9 +3,9 @@
+ # default                            = yum upgrade
+ # security                           = yum --security upgrade
+ # security-severity:Critical         = yum --sec-severity=Critical upgrade
+-# minimal                            = yum --bugfix upgrade-minimal
+-# minimal-security                   = yum --security upgrade-minimal
+-# minimal-security-severity:Critical =  --sec-severity=Critical upgrade-minimal
++# minimal                            = yum --bugfix update-minimal
++# minimal-security                   = yum --security update-minimal
++# minimal-security-severity:Critical =  --sec-severity=Critical update-minimal
+ update_cmd = default
+ 
+ # Whether a message should emitted when updates are available.
+diff --git a/etc/yum-cron.conf b/etc/yum-cron.conf
+index 960fcc9..7ab4d04 100644
+--- a/etc/yum-cron.conf
++++ b/etc/yum-cron.conf
+@@ -3,9 +3,9 @@
+ # default                            = yum upgrade
+ # security                           = yum --security upgrade
+ # security-severity:Critical         = yum --sec-severity=Critical upgrade
+-# minimal                            = yum --bugfix upgrade-minimal
+-# minimal-security                   = yum --security upgrade-minimal
+-# minimal-security-severity:Critical =  --sec-severity=Critical upgrade-minimal
++# minimal                            = yum --bugfix update-minimal
++# minimal-security                   = yum --security update-minimal
++# minimal-security-severity:Critical =  --sec-severity=Critical update-minimal
+ update_cmd = default
+ 
+ # Whether a message should be emitted when updates are available,

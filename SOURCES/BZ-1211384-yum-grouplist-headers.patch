@@ -1,0 +1,74 @@
+diff -up yum-3.4.3/cli.py.old yum-3.4.3/cli.py
+--- yum-3.4.3/cli.py.old	2015-05-28 18:04:17.237676571 +0200
++++ yum-3.4.3/cli.py	2015-05-28 18:05:27.644943137 +0200
+@@ -1807,22 +1807,22 @@ class YumBaseCli(yum.YumBase, output.Yum
+                     msg += ' [%s]' % group.langonly
+                 self.verbose_logger.info('%s', msg)
+ 
+-        _out_grp(_('Installed environment groups:'), ievgrps)
+-        _out_grp(_('Available environment groups:'), evgrps)
++        _out_grp(_('Installed Environment Groups:'), ievgrps)
++        _out_grp(_('Available Environment Groups:'), evgrps)
+ 
+         groups = []
+         for group in installed:
+             if group.langonly: continue
+             if not wts['pkg']: continue
+             groups.append(group)
+-        _out_grp(_('Installed groups:'), groups)
++        _out_grp(_('Installed Groups:'), groups)
+ 
+         groups = []
+         for group in installed:
+             if not group.langonly: continue
+             if not wts['lang']: continue
+             groups.append(group)
+-        _out_grp(_('Installed language groups:'), groups)
++        _out_grp(_('Installed Language Groups:'), groups)
+ 
+         groups = []
+         for group in available:
+@@ -1836,7 +1836,7 @@ class YumBaseCli(yum.YumBase, output.Yum
+             if not group.langonly: continue
+             if not wts['lang']: continue
+             groups.append(group)
+-        _out_grp(_('Available language groups:'), groups)
++        _out_grp(_('Available Language Groups:'), groups)
+ 
+         if not done:
+             self.logger.error(_('Warning: no environments/groups match: %s'),
+diff -up yum-3.4.3/po/yum.pot.old yum-3.4.3/po/yum.pot
+--- yum-3.4.3/po/yum.pot.old	2015-05-28 18:05:37.610980869 +0200
++++ yum-3.4.3/po/yum.pot	2015-05-28 18:06:23.557154824 +0200
+@@ -398,11 +398,11 @@ msgid "Cleaning up plugins"
+ msgstr ""
+ 
+ #: ../cli.py:1732
+-msgid "Installed environment groups:"
++msgid "Installed Environment Groups:"
+ msgstr ""
+ 
+ #: ../cli.py:1733
+-msgid "Available environment groups:"
++msgid "Available Environment Groups:"
+ msgstr ""
+ 
+ #: ../cli.py:1740
+@@ -410,7 +410,7 @@ msgid "Installed groups:"
+ msgstr ""
+ 
+ #: ../cli.py:1747
+-msgid "Installed language groups:"
++msgid "Installed Language Groups:"
+ msgstr ""
+ 
+ #: ../cli.py:1754
+@@ -418,7 +418,7 @@ msgid "Available Groups:"
+ msgstr ""
+ 
+ #: ../cli.py:1761
+-msgid "Available language groups:"
++msgid "Available Language Groups:"
+ msgstr ""
+ 
+ #: ../cli.py:1764

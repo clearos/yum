@@ -1,0 +1,67 @@
+diff --git a/output.py b/output.py
+index 091b58e..b14f129 100755
+--- a/output.py
++++ b/output.py
+@@ -447,6 +447,8 @@ class YumOutput:
+         self.term = YumTerm()
+         self._last_interrupt = None
+ 
++        self.reported_error_msgs = {k: False for (k, v) in ERRORS_TO_KBASE_ARTICLES.iteritems()}
++
+     
+     def printtime(self):
+         """Return a string representing the current time in the form::
+@@ -471,8 +473,22 @@ class YumOutput:
+         """
+         self.logger.error('%s: %s', errobj.url, errobj.exception)
+         self.logger.error(_('Trying other mirror.'))
++        self.suggestKBaseArticle(errobj)
+         raise errobj.exception
+     
++    def suggestKBaseArticle(self, errobj):
++        errcode = None
++        if hasattr(errobj.exception, 'code') and errobj.exception.code in ERRORS_TO_KBASE_ARTICLES:
++            errcode = errobj.exception.code
++        elif hasattr(errobj.exception, 'errno') and errobj.exception.errno in ERRORS_TO_KBASE_ARTICLES:
++            errcode = errobj.exception.errno
++        if not errcode:
++            return
++
++        if not self.reported_error_msgs[errcode]:
++            self.logger.error(ERRORS_TO_KBASE_ARTICLES[errcode])
++            self.reported_error_msgs[errcode] = True
++    
+         
+     def simpleProgressBar(self, current, total, name=None):
+         """Output the current status to the terminal using a simple
+diff --git a/yum/constants.py b/yum/constants.py
+index 5c728d4..02b2527 100644
+--- a/yum/constants.py
++++ b/yum/constants.py
+@@ -120,3 +120,25 @@ REPO_PROBLEM_METADATA=2
+ REPO_PROBLEM_COMPS=3
+ REPO_PROBLEM_OTHER=4
+ REPO_PROBLEM_PACKAGE=5
++
++
++ERRORS_TO_KBASE_ARTICLES = {
++    404: """To address this issue please refer to the below knowledge base article 
++
++https://access.redhat.com/articles/1320623
++
++If above article doesn't help to resolve this issue please open a ticket with Red Hat Support.
++""",
++    403: """To address this issue please refer to the below knowledge base article
++
++https://access.redhat.com/solutions/69319
++
++If above article doesn't help to resolve this issue please open a ticket with Red Hat Support.
++""",
++    60: """It was impossible to connect to the Red Hat servers.
++This could mean a connectivity issue in your environment, such as the requirement to configure a proxy,
++or a transparent proxy that tampers with TLS security, or an incorrect system clock.
++Please collect information about the specific failure that occurs in your environment,
++using the instructions in: https://access.redhat.com/solutions/1527033 and open a ticket with Red Hat Support.
++"""
++}
+\ No newline at end of file

@@ -1,0 +1,24 @@
+commit 6132fa0c489f85c93ce77587ae3db4930d5bb1a4
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Tue May 26 11:16:00 2015 +0200
+
+    Don't traceback on xml parsing. BZ#1063177
+
+diff --git a/yum/repos.py b/yum/repos.py
+index d5e50ac..a0ef28c 100644
+--- a/yum/repos.py
++++ b/yum/repos.py
+@@ -381,6 +381,13 @@ class RepoStorage:
+             sack = repo.getPackageSack()
+             try:
+                 sack.populate(repo, mdtype, callback, cacheonly)
++            except TypeError, e:
++                if not e.args[0].startswith('Parsing'):
++                    raise
++                if mdtype in ['all', 'metadata'] and repo.skip_if_unavailable:
++                    self.disableRepo(repo.id)
++                else:
++                    raise Errors.RepoError(e.args[0])
+             except Errors.RepoError, e:
+                 if mdtype in ['all', 'metadata'] and repo.skip_if_unavailable:
+                     self.disableRepo(repo.id)

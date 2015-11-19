@@ -1,0 +1,32 @@
+commit bfeae9135994630147c4d6af8679f95157a90d76
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Fri Feb 14 13:54:30 2014 +0100
+
+    Fix update-minimal traceback (#1048584) and ignoring updates.
+
+diff --git a/yum/updateinfo.py b/yum/updateinfo.py
+index 1cc207f..8d91f88 100644
+--- a/yum/updateinfo.py
++++ b/yum/updateinfo.py
+@@ -513,7 +513,7 @@ def update_minimal(base, extcmds=[]):
+             if extcmds and not _match_sec_cmd(extcmds, name, notice):
+                 continue
+             if (not ndata and
+-                not _ysp_should_filter_pkg(base, name, notice, used_map)):
++                not _ysp_should_filter_pkg(opts, name, notice, used_map)):
+                 continue
+             txmbrs.extend(base.update(name=pkgtup[0], arch=pkgtup[1],
+                                       epoch=pkgtup[2],
+diff --git a/yumcommands.py b/yumcommands.py
+index c93faa1..4e3b730 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4156,7 +4156,7 @@ class UpdateMinimalCommand(YumCommand):
+ 
+         num = len(base.tsInfo)
+         _upi.update_minimal(base, extcmds)
+-        num -= len(base.tsInfo)
++        num = len(base.tsInfo) - num
+         
+         if num > 0:
+             msg = '%d packages marked for minimal Update' % num
