@@ -1,0 +1,28 @@
+diff -uNrp yum-3.4.3.orig/yum/constants.py yum-3.4.3/yum/constants.py
+--- yum-3.4.3.orig/yum/constants.py	2015-12-03 09:06:24.365442687 -0600
++++ yum-3.4.3/yum/constants.py	2015-12-03 09:17:09.268462350 -0600
+@@ -127,18 +127,18 @@ ERRORS_TO_KBASE_ARTICLES = {
+ 
+ https://access.redhat.com/articles/1320623
+ 
+-If above article doesn't help to resolve this issue please open a ticket with Red Hat Support.
++If above article doesn't help to resolve this issue please create a bug on https://bugs.centos.org/
+ """,
+     403: """To address this issue please refer to the below knowledge base article
+ 
+ https://access.redhat.com/solutions/69319
+ 
+-If above article doesn't help to resolve this issue please open a ticket with Red Hat Support.
++If above article doesn't help to resolve this issue please create a bug on https://bugs.centos.org/
+ """,
+-    60: """It was impossible to connect to the Red Hat servers.
++    60: """It was impossible to connect to the CentOS servers.
+ This could mean a connectivity issue in your environment, such as the requirement to configure a proxy,
+ or a transparent proxy that tampers with TLS security, or an incorrect system clock.
+ Please collect information about the specific failure that occurs in your environment,
+-using the instructions in: https://access.redhat.com/solutions/1527033 and open a ticket with Red Hat Support.
++using the instructions in: https://access.redhat.com/solutions/1527033 and create a bug on https://bugs.centos.org/
+ """
+-}
+\ No newline at end of file
++}

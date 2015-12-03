@@ -36,7 +36,7 @@ BuildRequires: bash-completion
 Summary: RPM package installer/updater/manager
 Name: yum
 Version: 3.4.3
-Release: 132%{?dist}
+Release: 132%{?dist}.0.1
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
@@ -95,6 +95,8 @@ Patch163: BZ-1188960-API-missing-requires.patch
 Patch164: BZ-1233152-pvm-api-lv_attr.patch
 Patch165: BZ-1244119-fssnapshot-automatic-percentage-manpage.patch
 Patch166: BZ-1259837-igroups-empty-lines.patch
+
+Patch1000: centos-branding-yum.patch
 
 URL: http://yum.baseurl.org/
 BuildArchitectures: noarch
@@ -270,6 +272,8 @@ Install this package if you want auto yum updates nightly via cron.
 %patch164 -p1
 %patch165 -p1
 %patch166 -p1
+
+%patch1000 -p1
 
 # Do distro config. changes after everything else.
 %patch1 -p1
@@ -497,6 +501,9 @@ exit 0
 %endif
 
 %changelog
+* Thu Dec  3 2015 Johnny Hughes <johnny@centos.org>  - 3.4.3-132.el7.centos.0.1
+- Roll in Manual Branding Change to constants.py
+
 * Thu Nov 19 2015 CentOS Sources <bugs@centos.org> - 3.4.3-132.el7.centos
 - CentOS yum config
 -  use the CentOS bug tracker url
