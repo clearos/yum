@@ -6,14 +6,14 @@ diff -uNrp yum-3.4.3.orig/yum/constants.py yum-3.4.3/yum/constants.py
  https://access.redhat.com/articles/1320623
  
 -If above article doesn't help to resolve this issue please open a ticket with Red Hat Support.
-+If above article doesn't help to resolve this issue please create a bug on https://bugs.centos.org/
++If above article doesn't help to resolve this issue please create a bug on https://tracker.clearos.com/
  """,
      403: """To address this issue please refer to the below knowledge base article
  
  https://access.redhat.com/solutions/69319
  
 -If above article doesn't help to resolve this issue please open a ticket with Red Hat Support.
-+If above article doesn't help to resolve this issue please create a bug on https://bugs.centos.org/
++If above article doesn't help to resolve this issue please create a bug on https://tracker.clearos.com/
  """,
 -    60: """It was impossible to connect to the Red Hat servers.
 +    60: """It was impossible to connect to the CentOS servers.
@@ -21,7 +21,7 @@ diff -uNrp yum-3.4.3.orig/yum/constants.py yum-3.4.3/yum/constants.py
  or a transparent proxy that tampers with TLS security, or an incorrect system clock.
  Please collect information about the specific failure that occurs in your environment,
 -using the instructions in: https://access.redhat.com/solutions/1527033 and open a ticket with Red Hat Support.
-+using the instructions in: https://access.redhat.com/solutions/1527033 and create a bug on https://bugs.centos.org/
++using the instructions in: https://access.redhat.com/solutions/1527033 and create a bug on https://tracker.clearos.com/
  """
 -}
 \ No newline at end of file

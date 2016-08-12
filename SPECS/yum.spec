@@ -40,7 +40,7 @@ Release: 132%{?dist}.0.1
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
-Source1: yum.conf.centos
+Source1: yum.conf.clearos
 Source2: yum-updatesd.conf.fedora
 Patch1: yum-distro-configs.patch
 Patch5: geode-arch.patch
@@ -96,7 +96,7 @@ Patch164: BZ-1233152-pvm-api-lv_attr.patch
 Patch165: BZ-1244119-fssnapshot-automatic-percentage-manpage.patch
 Patch166: BZ-1259837-igroups-empty-lines.patch
 
-Patch1000: centos-branding-yum.patch
+Patch1000: clearos-branding-yum.patch
 
 URL: http://yum.baseurl.org/
 BuildArchitectures: noarch
