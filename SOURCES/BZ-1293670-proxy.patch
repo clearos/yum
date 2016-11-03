@@ -1,0 +1,24 @@
+diff -up yum-3.2.29/yum/config.py.old yum-3.2.29/yum/config.py
+--- yum-3.2.29/yum/config.py.old	2015-12-22 16:33:42.907483221 +0100
++++ yum-3.2.29/yum/config.py	2015-12-22 16:34:15.329584138 +0100
+@@ -202,7 +202,7 @@ class UrlOption(Option):
+         # Handle the "_none_" special case
+         if url.lower() == '_none_':
+             if self.allow_none:
+-                return None
++                return '_none_'
+             else:
+                 raise ValueError('"_none_" is not a valid value')
+ 
+diff -up yum-3.2.29/yum/yumRepo.py.old yum-3.2.29/yum/yumRepo.py
+--- yum-3.2.29/yum/yumRepo.py.old	2015-12-22 16:35:08.330749108 +0100
++++ yum-3.2.29/yum/yumRepo.py	2015-12-22 16:36:37.668027178 +0100
+@@ -432,7 +432,7 @@ class YumRepository(Repository, config.R
+         self._proxy_dict = {} # zap it
+         proxy_string = None
+         empty = (None, '_none_', '')
+-        if self.proxy is None:  # got 'proxy=_none_'
++        if self.proxy in empty:  # got 'proxy=_none_'
+             proxy_string = ''   # this disables default proxies
+         elif self.proxy:
+             proxy_string = '%s' % self.proxy

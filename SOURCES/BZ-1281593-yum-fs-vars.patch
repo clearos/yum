@@ -1,0 +1,143 @@
+commit 22271bf34e71bbfc75d0a59354fc0108e004f36c
+Author: James Antill <james@and.org>
+Date:   Mon Jun 9 16:09:32 2014 -0400
+
+    Read FS yumvars before yum.conf setup, and reread if installroot changed.
+
+diff --git a/yum/config.py b/yum/config.py
+index 6e0ecdc..1b5a11d 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -1022,6 +1022,23 @@ class VersionGroupConf(BaseConfig):
+     pkglist = ListOption()
+     run_with_packages = BoolOption(False)
+ 
++def _read_yumvars(yumvars, root):
++    # Read the FS yumvars
++    try:
++        dir_fsvars = root + "/etc/yum/vars/"
++        fsvars = os.listdir(dir_fsvars)
++    except OSError:
++        fsvars = []
++    for fsvar in fsvars:
++        if os.path.islink(dir_fsvars + fsvar):
++            continue
++        try:
++            val = open(dir_fsvars + fsvar).readline()
++            if val and val[-1] == '\n':
++                val = val[:-1]
++        except (OSError, IOError):
++            continue
++        yumvars[fsvar] = val
+ 
+ def readStartupConfig(configfile, root, releasever=None):
+     """Parse Yum's main configuration file and return a
+@@ -1044,6 +1061,7 @@ def readStartupConfig(configfile, root, releasever=None):
+     confpp_obj = ConfigPreProcessor(configfile)
+ 
+     yumvars = _getEnvVar()
++    _read_yumvars(yumvars, yumconf.installroot)
+     confpp_obj._vars = yumvars
+     startupconf.yumvars = yumvars
+ 
+@@ -1102,22 +1120,12 @@ def readMainConfig(startupconf):
+         ir_path = varReplace(ir_path, yumvars)
+         setattr(yumconf, option, ir_path)
+     
+-    # Read the FS yumvars
+-    try:
+-        dir_fsvars = yumconf.installroot + "/etc/yum/vars/"
+-        fsvars = os.listdir(dir_fsvars)
+-    except OSError:
+-        fsvars = []
+-    for fsvar in fsvars:
+-        if os.path.islink(dir_fsvars + fsvar):
+-            continue
+-        try:
+-            val = open(dir_fsvars + fsvar).readline()
+-            if val and val[-1] == '\n':
+-                val = val[:-1]
+-        except (OSError, IOError):
+-            continue
+-        yumvars[fsvar] = val
++    if StartupConf.installroot.default != yumconf.installroot:
++        #  Note that this isn't perfect, in that if the initial installroot has
++        # X=Y, and X doesn't exist in the new installroot ... then we'll still
++        # have X afterwards (but if the new installroot has X=Z, that will be
++        # the value after this).
++        _read_yumvars(yumvars, yumconf.installroot)
+ 
+     # These can use the above FS yumvars
+     for option in ('cachedir', 'logfile', 'persistdir'):
+commit 1ccd91f4b195737d6bb1bdfabcbf3714de1d9b85
+Author: James Antill <james@and.org>
+Date:   Mon Jun 16 15:16:25 2014 -0400
+
+    Fix merge typo. with FS vars. before yum.conf
+
+diff --git a/yum/config.py b/yum/config.py
+index 1b5a11d..8eab5bc 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -1061,7 +1061,7 @@ def readStartupConfig(configfile, root, releasever=None):
+     confpp_obj = ConfigPreProcessor(configfile)
+ 
+     yumvars = _getEnvVar()
+-    _read_yumvars(yumvars, yumconf.installroot)
++    _read_yumvars(yumvars, startupconf.installroot)
+     confpp_obj._vars = yumvars
+     startupconf.yumvars = yumvars
+ 
+commit 6148c8a10b22763592c141ce9ee6d85dce5816f7
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Thu Apr 21 16:08:19 2016 +0200
+
+    Honor FS yumvars over defaults for special vars. BZ 1327561
+    
+    This fixes up commit 22271bf, which caused FS yumvars like $releasever
+    to be unintentionally replaced by the default values (unless the
+    installroot was redefined by yumconf, which caused us to reread them).
+
+diff --git a/yum/config.py b/yum/config.py
+index 954700b..2ef5fa4 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -1114,12 +1114,12 @@ def readMainConfig(startupconf):
+     
+     # ' xemacs syntax hack
+ 
+-    # Set up substitution vars
++    # Set up substitution vars but make sure we always prefer FS yumvars
+     yumvars = startupconf.yumvars
+-    yumvars['basearch'] = startupconf.basearch
+-    yumvars['arch'] = startupconf.arch
+-    yumvars['releasever'] = startupconf.releasever
+-    yumvars['uuid'] = startupconf.uuid
++    yumvars.setdefault('basearch', startupconf.basearch)
++    yumvars.setdefault('arch', startupconf.arch)
++    yumvars.setdefault('releasever', startupconf.releasever)
++    yumvars.setdefault('uuid', startupconf.uuid)
+     # Note: We don't setup the FS yumvars here, because we want to be able to
+     #       use the core yumvars in persistdir. Which is the base of FS yumvars.
+     
+commit 1897df3c1477afd8f221833120092f35c26f5a9d
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Thu Apr 21 16:23:47 2016 +0200
+
+    Cosmetic: remove outdated comment
+    
+    It was no longer true after commit ade6d16.
+
+diff --git a/yum/config.py b/yum/config.py
+index 2ef5fa4..84be564 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -1120,8 +1120,6 @@ def readMainConfig(startupconf):
+     yumvars.setdefault('arch', startupconf.arch)
+     yumvars.setdefault('releasever', startupconf.releasever)
+     yumvars.setdefault('uuid', startupconf.uuid)
+-    # Note: We don't setup the FS yumvars here, because we want to be able to
+-    #       use the core yumvars in persistdir. Which is the base of FS yumvars.
+     
+     # Read [main] section
+     yumconf = YumConf()

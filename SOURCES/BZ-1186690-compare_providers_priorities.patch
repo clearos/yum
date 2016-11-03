@@ -1,0 +1,66 @@
+commit 9fb7032802a0f56cc85cf301478b48b3c72449e7
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Tue May 10 16:42:01 2016 +0200
+
+    Add compare_providers_priority repository option.
+
+diff --git a/test/testbase.py b/test/testbase.py
+index 467f8fb..73c97a1 100644
+--- a/test/testbase.py
++++ b/test/testbase.py
+@@ -89,6 +89,7 @@ class FakeRepo(object):
+             sack = self.__fake_sack
+         self.sack = sack
+         self.cost = 1000
++        self.compare_providers_priority = 80
+ 
+     def __cmp__(self, other):
+         """ Sort base class repos. by alphanumeric on their id, also
+diff --git a/yum/config.py b/yum/config.py
+index cae914d..1ee6dd3 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -1032,6 +1032,8 @@ class RepoConf(BaseConfig):
+ 
+     check_config_file_age = Inherit(YumConf.check_config_file_age)
+ 
++    compare_providers_priority = IntOption(80, range_min=1, range_max=99)
++
+     
+ class VersionGroupConf(BaseConfig):
+     """Option definitions for version groups."""
+diff --git a/yum/depsolve.py b/yum/depsolve.py
+index b482115..3453456 100644
+--- a/yum/depsolve.py
++++ b/yum/depsolve.py
+@@ -1653,6 +1653,12 @@ class Depsolve(object):
+                         pkgresults[po] += 5
+ 
+             # End of O(N*N): for nextpo in pkgs:
++
++            # Respect the repository priority for each provider, the default is 80
++            pkgresults[po] += (100 - po.repo.compare_providers_priority) * 10
++            self.verbose_logger.log(logginglevels.DEBUG_4,
++                _('compare_providers_priority for %s is %s' % (po, po.repo.compare_providers_priority)))
++
+             if _common_sourcerpm(po, reqpo):
+                 self.verbose_logger.log(logginglevels.DEBUG_4,
+                     _('common sourcerpm %s and %s' % (po, reqpo)))
+diff -up yum-3.4.3/docs/yum.conf.5.old yum-3.4.3/docs/yum.conf.5
+--- yum-3.4.3/docs/yum.conf.5.old	2016-05-10 17:00:13.406111903 +0200
++++ yum-3.4.3/docs/yum.conf.5	2016-05-10 17:01:03.302427161 +0200
+@@ -1229,6 +1229,14 @@ parallel, if possible.  Defaults to True
+ Overrides the \fBui_repoid_vars\fR option from the [main] section for this
+ repository.
+ 
++.IP
++\fBcompare_providers_priority \fR
++During depsolving, when choosing the best provider among several, yum will respect
++the priority of each provider's repository (note that there are other factors
++which yum considers, which may overweigh the repository priority). The value is
++an integer from 1 to 99, 1 being the most preferred repository, and 99 being
++the least preferred one. By default all repositories have the priority of 80.
++
+ .SH "URL INCLUDE SYNTAX"
+ .LP
+ The inclusion of external configuration files is supported for /etc/yum.conf

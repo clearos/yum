@@ -1,0 +1,19 @@
+diff -up yum-3.4.3/yum/depsolve.py.old yum-3.4.3/yum/depsolve.py
+--- yum-3.4.3/yum/depsolve.py.old	2016-03-21 15:27:30.107670469 +0100
++++ yum-3.4.3/yum/depsolve.py	2016-03-21 15:32:38.931701401 +0100
+@@ -1271,7 +1271,14 @@ class Depsolve(object):
+             nprov = self.tsInfo.getNewProvides(filename)
+             if nprov:
+                 iFP.setdefault(filename, []).extend([po.pkgtup for po in nprov])
+-                continue 
++                continue
++
++            if filename != os.path.realpath(filename):
++                realpath = os.path.realpath(filename)
++                nprov = self.tsInfo.getNewProvides(realpath)
++                if nprov:
++                    iFP.setdefault(realpath, []).extend([po.pkgtup for po in nprov])
++                    continue
+ 
+             for pkgtup in reverselookup[filename]:
+                 po = self.tsInfo.getMembersWithState(pkgtup, TS_INSTALL_STATES)

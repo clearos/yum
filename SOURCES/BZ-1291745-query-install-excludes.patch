@@ -1,0 +1,32 @@
+commit cc08cae08365d473d2ab5b29cd1ab4fedc8d0f75
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Tue Dec 15 15:01:23 2015 +0100
+
+    Fix the default value for query_install_excludes config option.
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 0548860..27620b8 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -174,7 +174,7 @@ A way to permanently set the --disableexcludes command line option.
+ \fBquery_install_excludes\fR
+ This applies the command line exclude option (only, not the configuration
+ exclude above) to installed packages being shown in some query commands
+-(currently: list/info/search/provides).
++(currently: list/info/search/provides). Default is '0'.
+ 
+ .IP
+ \fBinstallonlypkgs \fR
+diff --git a/yum/config.py b/yum/config.py
+index 0dcbc6a..77a1003 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -826,7 +826,7 @@ class YumConf(StartupConf):
+     # XXX rpm_check_debug is unused, left around for API compatibility for now
+     rpm_check_debug = BoolOption(True)
+     disable_excludes = ListOption()    
+-    query_install_excludes = BoolOption(True)
++    query_install_excludes = BoolOption(False)
+     skip_broken = BoolOption(False)
+     #  Note that "instant" is the old behaviour, but group:primary is very
+     # similar but better :).

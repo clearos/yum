@@ -1,0 +1,146 @@
+commit 7e7f374c1ac6984fc50726dd649c4f4c2f56266c
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Jan 29 12:08:30 2014 -0500
+
+     Make 'yum install @group' give an error when trying to install a
+    non-existent group.
+
+diff --git a/cli.py b/cli.py
+index c8884ae..eed63a2 100755
+--- a/cli.py
++++ b/cli.py
+@@ -964,6 +964,8 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                 else:
+                     assert basecmd == 'install', basecmd
+                     txmbrs = self.install(pattern=arg)
++            except yum.Errors.GroupInstallError, e:
++                self.verbose_logger.log(yum.logginglevels.INFO_2, e)
+             except yum.Errors.InstallError:
+                 self.verbose_logger.log(yum.logginglevels.INFO_2,
+                                         _('No package %s%s%s available.'),
+@@ -1922,6 +1924,7 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+             for igrp in self.igroups.groups:
+                 pkgs_used.extend(self._at_groupupgrade('@'  + igrp))
+         
++        done = False
+         for group_string in grouplist:
+ 
+             grp_grp = True
+@@ -1966,11 +1969,19 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+             if not group_matched:
+                 self.logger.error(_('Warning: group %s does not exist.'), group_string)
+                 continue
++            done = True
+             
+         if not pkgs_used:
+             if self.conf.group_command == 'objects':
+                 self.logger.critical(_("Maybe run: yum groups mark install (see man yum)"))
+-            return 0, [_('No packages in any requested group available to install or update')]
++            exit_status = 1
++            if upgrade:
++                # upgrades don't fail
++                exit_status = 0
++            if done:
++                # at least one group_string was a valid group
++                exit_status = 0
++            return exit_status, [_('No packages in any requested group available to install or update')]
+         else:
+             return 2, [P_('%d package to Install', '%d packages to Install', len(pkgs_used)) % len(pkgs_used)]
+ 
+diff --git a/yum/Errors.py b/yum/Errors.py
+index 70de539..2c2f022 100644
+--- a/yum/Errors.py
++++ b/yum/Errors.py
+@@ -105,6 +105,9 @@ class GroupsError(YumBaseError):
+ class InstallError(YumBaseError):
+     pass
+ 
++class GroupInstallError(InstallError):
++    pass
++
+ class UpdateError(YumBaseError):
+     pass
+     
+diff --git a/yum/__init__.py b/yum/__init__.py
+index bbd20f3..b40c7e4 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -1158,8 +1158,7 @@ class YumBase(depsolve.Depsolve):
+         if hasattr(self, 'term'):
+             hibeg, hiend = self.term.MODE['bold'], self.term.MODE['normal']
+ 
+-        func(_("The program %s%s%s is found in the yum-utils package.") %
+-             (hibeg, prog, hiend))
++        func(_("The program %s is found in the yum-utils package.") % self._try_bold(prog))
+ 
+     def buildTransaction(self, unfinished_transactions_check=True):
+         """Go through the packages in the transaction set, find them
+@@ -4451,6 +4450,12 @@ much more problems).
+             if node == slow:
+                 return None
+ 
++    def _try_bold(self, string_):
++        """Attempt to make the string look bold in terminal."""
++        if hasattr(self, 'term'):
++            return '%s%s%s' % (self.term.MODE['bold'], string_, self.term.MODE['normal'])
++        return string_
++
+     def _at_groupinstall(self, pattern, upgrade=False):
+         " Do groupinstall via. leading @ on the cmd line, for install."
+         assert pattern[0] == '@'
+@@ -4464,42 +4469,31 @@ much more problems).
+             self.logger.warning(e)
+             return tx_return
+ 
++        found = False
+         if group_string and group_string[0] == '^':
+             group_string = group_string[1:]
+             # Actually dealing with "environment groups".
+-            found = False
+             for env_grp in comps.return_environments(group_string):
+                 found = True
+-                try:
+-                    txmbrs = self.selectEnvironment(env_grp.environmentid,
+-                                                    upgrade=upgrade)
+-                    tx_return.extend(txmbrs)
+-                except yum.Errors.GroupsError:
+-                    assert False, "Checked in for loop."
+-                    continue
+-            if not found:
+-                self.logger.error(_('Warning: Environment group %s does not exist.'),
+-                                  group_string)
+-            return tx_return
+-
+-        found = False
+-        for group in comps.return_groups(group_string):
+-            found = True
+-            try:
++                txmbrs = self.selectEnvironment(env_grp.environmentid,
++                                                upgrade=upgrade)
++                tx_return.extend(txmbrs)
++        else:
++            for group in comps.return_groups(group_string):
++                found = True
+                 txmbrs = self.selectGroup(group.groupid, upgrade=upgrade)
+                 tx_return.extend(txmbrs)
+-            except yum.Errors.GroupsError:
+-                assert False, "Checked in for loop."
+-                continue
+         if not found:
+-            self.logger.error(_('Warning: Package group %s does not exist.'),
+-                              group_string)
+-
++            raise Errors.GroupInstallError, _('Group %s does not exist.') % self._try_bold(group_string)
+         return tx_return
+ 
+     def _at_groupupgrade(self, pattern):
+         " Do group upgrade via. leading @ on the cmd line, for update."
+-        return self._at_groupinstall(pattern, upgrade=True)
++        try:
++            return self._at_groupinstall(pattern, upgrade=True)
++        except Errors.GroupInstallError, e:
++            self.logger.warning(_('Warning: %s'), e)
++            return []
+ 
+     def _at_groupremove(self, pattern):
+         " Do groupremove via. leading @ on the cmd line, for remove."

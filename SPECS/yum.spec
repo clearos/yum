@@ -9,11 +9,6 @@
 %define yum_cron_systemd 0
 %endif
 
-%if ! 0%{?rhel}
-# we don't have this in rhel yet...
-BuildRequires: bash-completion
-%endif
-
 %if %{auto_sitelib}
 
 %{!?python_sitelib: %define python_sitelib %(python -c "from distutils.sysconfig import get_python_lib; print get_python_lib()")}
@@ -28,19 +23,20 @@ BuildRequires: bash-completion
 
 # disable broken /usr/lib/rpm/brp-python-bytecompile
 %define __os_install_post %{nil}
-%define compdir %(pkg-config --variable=completionsdir bash-completion)
-%if "%{compdir}" == ""
-%define compdir "/etc/bash_completion.d"
+%if 0%{?fedora} >= 19 || 0%{?rhel} >= 7
+%define compdir %{_datadir}/bash-completion/completions
+%else
+%define compdir %{_sysconfdir}/bash_completion.d
 %endif
 
 Summary: RPM package installer/updater/manager
 Name: yum
 Version: 3.4.3
-Release: 132%{?dist}.0.1
+Release: 150%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
-Source1: yum.conf.centos
+Source1: yum.conf.fedora
 Source2: yum-updatesd.conf.fedora
 Patch1: yum-distro-configs.patch
 Patch5: geode-arch.patch
@@ -96,7 +92,46 @@ Patch164: BZ-1233152-pvm-api-lv_attr.patch
 Patch165: BZ-1244119-fssnapshot-automatic-percentage-manpage.patch
 Patch166: BZ-1259837-igroups-empty-lines.patch
 
-Patch1000: centos-branding-yum.patch
+# rhel-7.3
+Patch200: BZ-1267234-groupinstall-fail-on-non-existent.patch
+Patch201: BZ-1274211-skip-missing-names.patch
+Patch202: BZ-1183669-corrupt-cache.patch
+Patch203: BZ-1235623-new-provides-realpath-file-search.patch
+Patch204: BZ-1292160-security-lists-wrong-arch-updates.patch
+Patch205: BZ-1267897-exclude-dups-from-security-updates.patch
+Patch206: BZ-1292150-updateinfo-list-available.patch
+Patch207: BZ-1293670-proxy.patch
+Patch208: BZ-1291745-query-install-excludes.patch
+Patch209: BZ-1293378-ftp-disable-epsv.patch
+Patch210: BZ-1272058-arches.patch
+Patch211: BZ-1279483-hidden-groups-manpage.patch
+Patch212: BZ-1281593-yum-fs-vars.patch
+Patch213: BZ-1306142-allow-older-installonly-deps.patch
+Patch214: BZ-1321651-repoinfo-add-metadata-expire-filter.patch
+Patch215: BZ-1202680-handle-non-ascii-email.patch
+Patch216: BZ-1168121-fssnapshot-manpage-fix.patch
+Patch217: BZ-1004853-yum-cron-handle-empty-transaction.patch
+Patch218: BZ-1309676-fs-command-help-fix.patch
+Patch219: BZ-1294789-yum-cron-fix-update_cmd.patch
+Patch220: BZ-1292087-history-hash-crash.patch
+Patch221: BZ-1234967-handle-invalid-yumdb.patch
+Patch222: BZ-1208803-autosavets.patch
+Patch223: BZ-1186690-compare_providers_priorities.patch
+Patch224: BZ-1330423-skipbroken-installonly-limit-fix.patch
+Patch225: BZ-1195745-failed-repo-message.patch
+Patch226: BZ-1327962-conduit-typo.patch
+Patch227: BZ-1328023-updateinfo-traceback.patch
+Patch228: BZ-1293513-compdir.patch
+Patch229: BZ-1065380-updateinfo-strip-respin.patch
+Patch230: BZ-1175309-enable-repos-instruction.patch
+Patch231: BZ-1337105-add-lazy-packages-caching-opt.patch
+Patch232: BZ-1348995-ship-comps-rng-schema.patch
+Patch233: BZ-1339168-yum-cron-conf-typo.patch
+Patch234: BZ-1330670-system-name-email-from-cron.patch
+Patch235: BZ-1347813-security-updates-count.patch
+Patch236: BZ-1335250-fssnapshot-handle-lvm-errors.patch
+Patch237: BZ-1356797-silent-exception.patch
+Patch238: BZ-1377328-_metadata_cache_req.patch
 
 URL: http://yum.baseurl.org/
 BuildArchitectures: noarch
@@ -109,17 +144,16 @@ BuildRequires: python >= 2.4
 BuildRequires: rpm-python, rpm >= 0:4.4.2
 BuildRequires: python-iniparse
 BuildRequires: python-sqlite
-BuildRequires: python-urlgrabber >= 3.9.0-8
+BuildRequires: python-urlgrabber >= 3.10-8
 BuildRequires: yum-metadata-parser >= 1.1.0
 BuildRequires: pygpgme
 # End of CheckRequires
 Conflicts: pirut < 1.1.4
 Requires: python >= 2.4
-Requires: yum-plugin-fastestmirror
 Requires: rpm-python, rpm >= 0:4.4.2
 Requires: python-iniparse
 Requires: python-sqlite
-Requires: python-urlgrabber >= 3.9.0-8
+Requires: python-urlgrabber >= 3.10-8
 Requires: yum-metadata-parser >= 1.1.0
 Requires: pygpgme
 # rawhide is >= 0.5.3-7.fc18 ... as this is added.
@@ -273,7 +307,46 @@ Install this package if you want auto yum updates nightly via cron.
 %patch165 -p1
 %patch166 -p1
 
-%patch1000 -p1
+# rhel-7.3
+%patch200 -p1
+%patch201 -p1
+%patch202 -p1
+%patch203 -p1
+%patch204 -p1
+%patch205 -p1
+%patch206 -p1
+%patch207 -p1
+%patch208 -p1
+%patch209 -p1
+%patch210 -p1
+%patch211 -p1
+%patch212 -p1
+%patch213 -p1
+%patch214 -p1
+%patch215 -p1
+%patch216 -p1
+%patch217 -p1
+%patch218 -p1
+%patch219 -p1
+%patch220 -p1
+%patch221 -p1
+%patch222 -p1
+%patch223 -p1
+%patch224 -p1
+%patch225 -p1
+%patch226 -p1
+%patch227 -p1
+%patch228 -p1
+%patch229 -p1
+%patch230 -p1
+%patch231 -p1
+%patch232 -p1
+%patch233 -p1
+%patch234 -p1
+%patch235 -p1
+%patch236 -p1
+%patch237 -p1
+%patch238 -p1
 
 # Do distro config. changes after everything else.
 %patch1 -p1
@@ -296,7 +369,7 @@ INIT=systemd
 INIT=sysv
 %endif
 
-make DESTDIR=$RPM_BUILD_ROOT UNITDIR=%{_unitdir} INIT=$INIT install
+make DESTDIR=$RPM_BUILD_ROOT UNITDIR=%{_unitdir} INIT=$INIT COMPDIR=%{compdir} install
 
 install -m 644 %{SOURCE1} $RPM_BUILD_ROOT/%{_sysconfdir}/yum.conf
 mkdir -p $RPM_BUILD_ROOT/%{_sysconfdir}/yum/pluginconf.d $RPM_BUILD_ROOT/%{yum_pluginslib}
@@ -437,7 +510,7 @@ exit 0
 
 %files -f %{name}.lang
 %defattr(-, root, root, -)
-%doc README AUTHORS COPYING TODO INSTALL ChangeLog PLUGINS
+%doc README AUTHORS COPYING TODO INSTALL ChangeLog PLUGINS docs/comps.rng
 %if %{move_yum_conf_back}
 %config(noreplace) %{_sysconfdir}/yum.conf
 %dir %{_sysconfdir}/yum.repos.d
@@ -451,7 +524,11 @@ exit 0
 %dir %{_sysconfdir}/yum/fssnap.d
 %dir %{_sysconfdir}/yum/vars
 %config(noreplace) %{_sysconfdir}/logrotate.d/%{name}
+%if 0%{?fedora} >= 19 || 0%{?rhel} >= 7
 %(dirname %{compdir})
+%else
+%{compdir}
+%endif
 %dir %{_datadir}/yum-cli
 %{_datadir}/yum-cli/*
 %exclude %{_datadir}/yum-cli/completion-helper.py?
@@ -501,15 +578,131 @@ exit 0
 %endif
 
 %changelog
-* Thu Dec  3 2015 Johnny Hughes <johnny@centos.org>  - 3.4.3-132.el7.centos.0.1
-- Roll in Manual Branding Change to constants.py
+* Mon Sep 19 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-150
+- Check for _metadata_cache_req properly.
+- Resolves: bug#1377328
 
-* Thu Nov 19 2015 CentOS Sources <bugs@centos.org> - 3.4.3-132.el7.centos
-- CentOS yum config
--  use the CentOS bug tracker url
--  retain installonly limit of 5
--  ensure distrover is always from centos-release
-- Make yum require yum-plugin-fastestmirror
+* Mon Aug 29 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-149
+- Report __del__ RepoError exceptions into log instead of stderr.
+- Resolves: bug#1356797
+
+* Thu Aug 04 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-148
+- Don't change method signature for lazy:packages.
+- Related: bug#1337105
+
+* Fri Jul 22 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-147
+- Better exception handling in fssnap.
+- Resolves: bug#1335250
+
+* Thu Jul 21 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-146
+- Fix count of applicable security updates.
+- Related: bug#1292160
+- Update the docs for compare_providers_priority.
+- Related: bug#1186690
+
+* Mon Jul 18 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-145
+- yum-cron: properly replace 'localhost' with system_name value in email_from.
+- Related: bug#1330670
+
+* Fri Jul 01 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-144
+- Fixed the required python-urlgrabber version.
+- Related: bug#1337105
+
+* Thu Jun 30 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-143
+- Add lazy:packages caching option.
+- Resolves: bug#1337105
+- Install comps.rng on the system.
+- Resolves: bug#1348995
+- Typo fixes.
+- Resolves: bug#1339168
+- yum-cron: replace 'localhost' with system_name value in email_from.
+- Resolves: bug#1330670
+
+* Thu May 19 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-142
+- Reworked the respin suffix patch.
+- Related: bug#1065380
+
+* Thu May 19 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-141
+- updateinfo: strip respin suffix if present.
+- Resolves: bug#1065380
+- Mention subscription-manager for enabling repos.
+- Resolves: bug#1175309
+
+* Wed May 11 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-140
+- Fix bash-completion dir in Makefile.
+- Related: bug#1293513
+
+* Tue May 10 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-139
+- Add autosavets option allowing to avoid autosaving transactions.
+- Resolves: bug#1208803
+- Add compare_providers_priority repository option.
+- Resolves: bug#1186690
+- skipbroken: don't installonly_limit if new pkg fails.
+- Resolves: bug#1330423
+- Recommend --disablerepo and subscription-manager when a repo fails.
+- Resolves: bug#1195745
+- Fix a typo in exclude_updates().
+- Resolves: bug#1327962
+- Fix 'updateinfo list all' traceback and indicate if the package is installed.
+- Resolves: bug#1328023
+- Explicitly list the bash completions directory.
+- Resolves: bug#1293513
+
+* Fri Apr 29 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-138
+- Read FS yumvars before yum.conf setup, and reread if installroot changed.
+- Resolves: bug#1281593
+- Cope with older installonly packages from deps.
+- Resolves: bug#1306142
+- Add metadata_expire_filter to repoinfo output.
+- Resolves: bug#1321651
+- yum-cron: don't crash with non-ascii email.
+- Resolves: bug#1202680
+- Fix fssnapshot section in the manpage.
+- Resolves: bug#1168121
+- yum-cron: don't fail on empty transaction.
+- Resolves: bug#1004853
+- Fix summary for yum fs command.
+- Resolves: bug#1309676
+- yum-cron: fix the parsing of update_cmd.
+- Resolves: bug#1294789
+- Make YumHistoryRpmdbProblem objects hashable.
+- Resolves: bug#1292087
+- Allow for validating attributes read from yumdb.
+- Resolves: bug#1234967
+
+* Tue Apr 05 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-137
+- Honor proxy=_none_ set in yum.conf.
+- Resolves: bug#1293670
+- Fix the default value for query_install_excludes config option.
+- Resolves: bug#1291745
+- Add ftp_disable_epsv config option.
+- Resolves: bug#1293378
+- Add ppc64le and aarch64 to rpmUtils.arch.arches.
+- Resolves: bug#1272058
+- Clarify using 'group list' command for hidden groups in the man page.
+- Resolves: bug#1279483
+
+* Tue Mar 22 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-136
+- Fix updateinfo to exclude wrong arch updates.
+- Resolves: bug#1292160
+- Exclude duplicates from the list of security updates.
+- Resolves: bug#1267897
+- Fix 'updateinfo list available' logic and make 'updates' the default.
+- Resolves: bug#1292150
+
+* Mon Mar 21 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-135
+- Search new providers for realpath filenames.
+- Resolves: bug#1235623
+
+* Thu Mar 17 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-134
+- Disable repo with skip_if_unavailable=True if repomd.xml can't be retrieved.
+- Resolves: bug#1183669
+
+* Wed Mar 16 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-133
+- Fail on attempting to install a non-existent group.
+- Resolves: bug#1267234
+- Add config options skip_missing_names_on_install and skip_missing_names_on_update.
+- Resolves: bug#1274211
 
 * Wed Sep 09 2015 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-132
 - Don't fail on empty lines in group files.

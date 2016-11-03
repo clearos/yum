@@ -1,0 +1,86 @@
+commit afac6a760b97b7dd71c06c00a4716d3212f6884c
+Author: Masahiro Matsuya <mmatsuya@redhat.com>
+Date:   Wed Apr 20 10:16:10 2016 +0200
+
+    Cope with older installonly packages from deps. BZ 1306142
+    
+    We have been doing this with explicitly installed packages but not for
+    their dependencies, so let's do it after depsolving again to cover those
+    too.
+
+diff --git a/test/operationstests.py b/test/operationstests.py
+index 5a50439..bd999e6 100644
+--- a/test/operationstests.py
++++ b/test/operationstests.py
+@@ -1,3 +1,4 @@
++import rpm
+ from testbase import *
+ import simpleobsoletestests
+ 
+@@ -142,6 +143,17 @@ class KernelTests(OperationsTests):
+         res, msg = self.runOperation(['install','kernel-2.6.23.8'], p.inst, p.avail)
+         self.assertResult(p.inst)
+ 
++    def testRequireOlderKernel(self):
++        p = self.pkgs
++
++        foo = FakePackage('foo', '1.0', '1', arch='i686')
++        foo.addRequires('kernel', 'EQ', (None, '2.6.23.5', '1'))
++        navail = [foo, FakePackage('kernel', '2.6.23.5', '1',arch='i686')]
++
++        res, msg = self.runOperation(['install', 'foo'], p.inst, navail)
++        self.assertResult(p.inst + navail)
++        self.assertEquals(self.tsInfo.probFilterFlags, [rpm.RPMPROB_FILTER_OLDPACKAGE])
++
+ class MultiLibTests(OperationsTests):
+ 
+     @staticmethod
+diff --git a/yum/__init__.py b/yum/__init__.py
+index acaa973..c896fff 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -1356,6 +1356,17 @@ much more problems).
+ 
+         if rescode == 2:
+             self.save_ts(auto=True)
++
++        # Make sure we don't fail in rpm if we're installing a package that is
++        # allowed multiple installs but has a newer version already installed.
++        # Note that we already have a similar check in install(), but here we
++        # do it to cover anything that was pulled in as a dependency.
++        if rpm.RPMPROB_FILTER_OLDPACKAGE not in self.tsInfo.probFilterFlags:
++            for m in self.tsInfo.getMembers():
++                if m.ts_state == 'i' and self.allowedMultipleInstalls(m.po):
++                    if self._enable_oldpackage_flag(m.po):
++                        break
++
+         self.verbose_logger.debug('Depsolve time: %0.3f' % (time.time() - ds_st))
+         return rescode, restring
+ 
+@@ -4674,6 +4685,14 @@ much more problems).
+             if flag not in self.tsInfo.probFilterFlags:
+                 self.tsInfo.probFilterFlags.append(flag)
+ 
++    def _enable_oldpackage_flag(self, po):
++        """Add RPMPROB_FILTER_OLDPACKAGE if the package requires it."""
++        for ipkg in self.rpmdb.searchNevra(name=po.name):
++            if ipkg.verGT(po) and not canCoinstall(ipkg.arch, po.arch):
++                self._add_prob_flags(rpm.RPMPROB_FILTER_OLDPACKAGE)
++                return True
++        return False
++
+     def _install_is_upgrade(self, po, ipkgs):
+         """ See if po is an upgradeable version of an installed pkg.
+         Non-compat. arch differences mean no. """
+@@ -4969,10 +4988,7 @@ much more problems).
+                     # and a remove, which also tries to remove the old version.
+                     self.tsInfo.remove(ipkg.pkgtup)
+                     break
+-            for ipkg in self.rpmdb.searchNevra(name=po.name):
+-                if ipkg.verGT(po) and not canCoinstall(ipkg.arch, po.arch):
+-                    self._add_prob_flags(rpm.RPMPROB_FILTER_OLDPACKAGE)
+-                    break
++            self._enable_oldpackage_flag(po)
+             
+             # it doesn't obsolete anything. If it does, mark that in the tsInfo, too
+             obs_pkgs = list(self._find_obsoletees_direct(po))

@@ -1,0 +1,20 @@
+commit 673ceee5f3d32fc6397e9a280ac18926e82ac152
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Mon Sep 19 17:38:08 2016 +0200
+
+    Check for _metadata_cache_req properly.
+
+diff --git a/yum/yumRepo.py b/yum/yumRepo.py
+index 2db8faf..47f950b 100644
+--- a/yum/yumRepo.py
++++ b/yum/yumRepo.py
+@@ -1473,7 +1473,8 @@ Insufficient space in download directory %s
+             else:
+                 result = self._getFileRepoXML(local, text)
+                 if result is None:
+-                    if self.skip_if_unavailable and self._metadata_cache_req in ('write', 'read-only:future'):
++                    if (self.skip_if_unavailable and hasattr(self, '_metadata_cache_req')
++                        and self._metadata_cache_req in ('write', 'read-only:future')):
+                         # Since skip_if_unavailable=True, we can just disable this repo
+                         raise Errors.RepoError, "Can't download repomd.xml for %s" % self.ui_id
+ 

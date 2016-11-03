@@ -1,0 +1,173 @@
+commit d4ff5427368977f74a8ba7b0be51752023592025
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Mar 16 16:22:34 2016 +0100
+
+    Add config options skip_missing_names_on_install and skip_missing_names_on_update. BZ#1274211
+
+diff --git a/cli.py b/cli.py
+index fd6e715..54a2e81 100755
+--- a/cli.py
++++ b/cli.py
+@@ -982,6 +982,8 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                     except:
+                         self.verbose_logger.warning(_('Bad %s argument %s.'),
+                                                     basecmd, arg)
++                        if not self.conf.skip_missing_names_on_install:
++                            return 1, [_('Not tolerating missing names on install, stopping.')]
+                         continue
+                     txmbrs = self.install(name=n, arch=a)
+                 elif basecmd == 'install-nevra':
+@@ -992,6 +994,8 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                     except:
+                         self.verbose_logger.warning(_('Bad %s argument %s.'),
+                                                     basecmd, arg)
++                        if not self.conf.skip_missing_names_on_install:
++                            return 1, [_('Not tolerating missing names on install, stopping.')]
+                         continue
+                     txmbrs = self.install(name=n,
+                                           epoch=e, version=v, release=r, arch=a)
+@@ -1000,12 +1004,16 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                     txmbrs = self.install(pattern=arg)
+             except yum.Errors.GroupInstallError, e:
+                 self.verbose_logger.log(yum.logginglevels.INFO_2, e)
++                if not self.conf.skip_missing_names_on_install:
++                    return 1, [_('Not tolerating missing names on install, stopping.')]
+             except yum.Errors.InstallError:
+                 self.verbose_logger.log(yum.logginglevels.INFO_2,
+                                         _('No package %s%s%s available.'),
+                                         self.term.MODE['bold'], arg,
+                                         self.term.MODE['normal'])
+                 self._maybeYouMeant(arg)
++                if not self.conf.skip_missing_names_on_install:
++                    return 1, [_('Not tolerating missing names on install, stopping.')]
+             else:
+                 done = True
+                 self._install_upgraded_requires(txmbrs)
+@@ -1057,10 +1065,19 @@ class YumBaseCli(yum.YumBase, output.YumOutput):
+                     self._install_upgraded_requires(txmbrs)
+                     continue
+ 
+-                txmbrs = self.update(pattern=item, update_to=update_to)
++                try:
++                    txmbrs = self.update(pattern=item, update_to=update_to)
++                except (yum.Errors.UpdateMissingNameError, yum.Errors.GroupInstallError):
++                    self._checkMaybeYouMeant(item)
++                    return 1, [_('Not tolerating missing names on update, stopping.')]
++
+                 self._install_upgraded_requires(txmbrs)
+                 if not txmbrs:
+                     self._checkMaybeYouMeant(item)
++                    if not self.conf.skip_missing_names_on_update:
++                        matches = self.doPackageLists(pkgnarrow='all', patterns=[item], ignore_case=False)
++                        if matches.available and not matches.installed:
++                            return 1, [_('Not tolerating missing names on update, stopping.')]
+ 
+         if len(self.tsInfo) > oldcount:
+             change = len(self.tsInfo) - oldcount
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index 116829a..f823c6f 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -945,6 +945,17 @@ Either `0' or `1'. Set this to `0' to disable the checking for writability on
+ /usr in the installroot (when going into the depsolving stage). Default is `1'
+ (perform the check).
+ 
++.IP
++\fBskip_missing_names_on_install\fR
++If set to False, 'yum install' will fail if it can't find any of the provided
++names (package, group, rpm file). Boolean (1, 0, True, False, yes, no). Defaults to True.
++
++.IP
++\fBskip_missing_names_on_update\fR
++If set to False, 'yum update' will fail if it can't find any of the provided
++names (package, group, rpm file). It will also fail if the provided name is a package
++which is available, but not installed. Boolean (1, 0, True, False, yes, no). Defaults to True.
++
+ .SH "[repository] OPTIONS"
+ .LP 
+ The repository section(s) take the following form:
+diff --git a/test/testbase.py b/test/testbase.py
+index 6d240b0..b303356 100644
+--- a/test/testbase.py
++++ b/test/testbase.py
+@@ -46,6 +46,8 @@ class FakeConf(object):
+         self.tsflags = []
+         self.installonly_limit = 0
+         self.skip_broken = False
++        self.skip_missing_names_on_install = True
++        self.skip_missing_names_on_update = True
+         self.disable_excludes = []
+         self.multilib_policy = 'best'
+         self.persistdir = '/should-not-exist-bad-test!'
+diff --git a/yum/Errors.py b/yum/Errors.py
+index f69c061..3f87b0b 100644
+--- a/yum/Errors.py
++++ b/yum/Errors.py
+@@ -117,6 +117,9 @@ class GroupInstallError(InstallError):
+ 
+ class UpdateError(YumBaseError):
+     pass
++
++class UpdateMissingNameError(UpdateError):
++    pass
+     
+ class RemoveError(YumBaseError):
+     pass
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 1f6ce16..acaa973 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -4581,7 +4581,10 @@ much more problems).
+             return self._at_groupinstall(pattern, upgrade=True)
+         except Errors.GroupInstallError, e:
+             self.logger.warning(_('Warning: %s'), e)
+-            return []
++            if self.conf.skip_missing_names_on_update:
++                return []
++            else:
++                raise
+ 
+     def _at_groupremove(self, pattern):
+         " Do groupremove via. leading @ on the cmd line, for remove."
+@@ -5185,6 +5188,8 @@ much more problems).
+ 
+             if not availpkgs and not instpkgs:
+                 self.logger.critical(_('No Match for argument: %s') % to_unicode(arg))
++                if not self.conf.skip_missing_names_on_update:
++                    raise Errors.UpdateMissingNameError, _('Not tolerating missing names on update, stopping.')
+         
+         else: # we have kwargs, sort them out.
+             nevra_dict = self._nevra_kwarg_parse(kwargs)
+diff --git a/yum/config.py b/yum/config.py
+index 6bd8d24..954700b 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -729,6 +729,8 @@ class StartupConf(BaseConfig):
+     syslog_facility = Option('LOG_USER')
+     syslog_device = Option('/dev/log')
+     persistdir = Option('/var/lib/yum')
++    skip_missing_names_on_install = BoolOption(True)
++    skip_missing_names_on_update = BoolOption(True)
+     
+ class YumConf(StartupConf):
+     """Configuration option definitions for yum.conf's [main] section.
+commit be18ab78927522db11cfae5e4f270b073ed1df0b
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Mar 16 16:16:49 2016 +0100
+
+    Fix returnPackages() to respect ignore_case.
+
+diff --git a/yum/rpmsack.py b/yum/rpmsack.py
+index 11814f1..0990edd 100644
+--- a/yum/rpmsack.py
++++ b/yum/rpmsack.py
+@@ -607,6 +607,9 @@ class RPMDBPackageSack(PackageSackBase):
+                 # will pick up any loads :)
+                 pkgs = self.searchNames([pat])
+                 if not pkgs:
++                    # We could be given gliBc or mysql
++                    if ignore_case:
++                        break
+                     # We need to do a big search for 'pkg*'
+                     if misc.re_glob(pat):
+                         break

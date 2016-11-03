@@ -1,0 +1,21 @@
+commit fb107337b2490d314a4f31562427cdebe9eca4e4
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Thu Mar 17 16:35:29 2016 +0100
+
+    Disable repo with skip_if_unavailable=True if repomd.xml can't be retrieved.
+
+diff --git a/yum/yumRepo.py b/yum/yumRepo.py
+index fc5d538..3f7e975 100644
+--- a/yum/yumRepo.py
++++ b/yum/yumRepo.py
+@@ -1460,6 +1460,10 @@ Insufficient space in download directory %s
+             else:
+                 result = self._getFileRepoXML(local, text)
+                 if result is None:
++                    if self.skip_if_unavailable and self._metadata_cache_req in ('write', 'read-only:future'):
++                        # Since skip_if_unavailable=True, we can just disable this repo
++                        raise Errors.RepoError, "Can't download repomd.xml for %s" % self.ui_id
++
+                     # Ignore this as we have a copy
+                     self._revertOldRepoXML()
+                     return False

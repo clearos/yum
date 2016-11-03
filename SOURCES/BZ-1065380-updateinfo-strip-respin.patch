@@ -1,0 +1,135 @@
+commit 7b92efd65fea5187d295ffc4fcb49dcfbe822623
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Tue May 17 13:04:52 2016 +0200
+
+    updateinfo: strip respin suffix if present. BZ 1065380
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index 9c09c48..efaa061 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -1091,6 +1091,17 @@ To get the information on advisory FEDORA-2707-4567 use:
+ .IP
+ yum updateinfo info FEDORA-2707-4567
+ .PP
++For Red Hat advisories, respin suffixes are also accepted in the ID, although
++they won't have any effect on the actual respin selected by yum, as it will
++always select the latest one available.  For example, if you use:
++.IP
++yum updateinfo info RHSA-2016:1234-2
++.PP
++while RHSA-2016:1234-3 has been shipped already, yum will select the latter
++(provided your updateinfo.xml is current).  The same would happen if you just
++specified RHSA-2016:1234.  That said, there's no need for you to specify or
++care about the suffix at all.
++.PP
+ To update packages to the latest version which contain fixes for Bugzillas 123, 456 and 789; and all security updates use:
+ .IP
+ yum --bz 123 --bz 456 --bz 789 --security update
+diff --git a/yum/updateinfo.py b/yum/updateinfo.py
+index 2b39330..7abe332 100644
+--- a/yum/updateinfo.py
++++ b/yum/updateinfo.py
+@@ -1,5 +1,6 @@
+ 
+ import os.path
++import re
+ 
+ from yum.i18n import _, P_
+ 
+@@ -172,6 +173,40 @@ def _args2filters(args):
+             filters[T] = filters.get(T, []) + arg1.split(',')
+         return filters
+ 
++def _ysp_gen_opts(filters, sec_cmds=None):
++    def strip_respin(id_):
++        # Example: RHSA-2016:1234-2 -> RHSA-2016:1234
++        pattern = r'^(RH[BES]A\-\d+\:\d+)(\-\d+)?$'
++        match = re.match(pattern, id_)
++        if match:
++            return match.group(1)
++        return id_
++
++    opts = _updateinfofilter2opts(filters)
++    if sec_cmds is not None:
++        opts.sec_cmds = sec_cmds
++
++    # If a RH advisory was specified with a respin suffix, strip it out, as we
++    # don't include these suffixes in the notice update_id attribute either (we
++    # use the version attribute for that).  Note that there's no ambiguity in
++    # which notice version we should match then, as updateinfo.xml should only
++    # contain one per advisory ID (we give a warning when duplicate IDs are
++    # detected in it).  The reason we are handling this is that we sometimes
++    # refer to advisories in this form (e.g. on rhn.redhat.com/errata/...) and
++    # the user may then use it with yum too, in which case we would yield no
++    # matches.
++    #
++    # However, we used to put these suffixes in update_id in the past, so let's
++    # also keep the original (unstripped) form around in opts, just in case we
++    # are dealing with such an old updateinfo.xml.
++    for attr in ['sec_cmds', 'advisory']:
++        oldlist = getattr(opts, attr)
++        stripped = map(strip_respin, oldlist)
++        newlist = list(set(oldlist) | set(stripped))
++        setattr(opts, attr, newlist)
++
++    return opts
++
+ def _ysp_gen_used_map(opts):
+     used_map = {'bugzilla' : {}, 'cve' : {}, 'id' : {}, 'cmd' : {}, 'sev' : {}}
+     if True:
+@@ -308,7 +343,7 @@ def remove_txmbrs(base, filters=None):
+ 
+     if filters is None:
+         filters = base.updateinfo_filters
+-    opts = _updateinfofilter2opts(filters)
++    opts = _ysp_gen_opts(filters)
+ 
+     if _no_options(opts):
+         return 0, 0, 0
+@@ -392,7 +427,7 @@ def exclude_updates(base, filters=None):
+ 
+     if filters is None:
+         filters = base.updateinfo_filters
+-    opts = _updateinfofilter2opts(filters)
++    opts = _ysp_gen_opts(filters)
+ 
+     if _no_options(opts):
+         return 0, 0
+@@ -446,7 +481,7 @@ def exclude_all(base, filters=None):
+ 
+     if filters is None:
+         filters = base.updateinfo_filters
+-    opts = _updateinfofilter2opts(filters)
++    opts = _ysp_gen_opts(filters)
+ 
+     if _no_options(opts):
+         return 0, 0
+@@ -487,7 +522,7 @@ def update_minimal(base, extcmds=[]):
+     txmbrs = []
+ 
+     used_map = _ysp_gen_used_map(base.updateinfo_filters)
+-    opts     = _updateinfofilter2opts(base.updateinfo_filters)
++    opts     = _ysp_gen_opts(base.updateinfo_filters)
+     ndata    = _no_options(opts)
+ 
+     # NOTE: Not doing obsoletes processing atm. ... maybe we should? --
+--- yum-3.4.3/yumcommands.py.orig	2016-05-19 12:58:38.354630030 +0200
++++ yum-3.4.3/yumcommands.py	2016-05-19 12:59:37.385260152 +0200
+@@ -4071,7 +4071,6 @@
+             # or -q deletes everything.
+             print x
+ 
+-        opts = _upi._updateinfofilter2opts(base.updateinfo_filters)
+         extcmds, show_type, filt_type = self._parse_extcmds(extcmds)
+ 
+         list_type = "available"
+@@ -4081,7 +4080,7 @@
+             if filt_type is None:
+                 extcmds, show_type, filt_type = self._parse_extcmds(extcmds)
+ 
+-        opts.sec_cmds = extcmds
++        opts = _upi._ysp_gen_opts(base.updateinfo_filters, extcmds)
+         used_map = _upi._ysp_gen_used_map(base.updateinfo_filters)
+         iname2tup = {}
+         if False: pass

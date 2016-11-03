@@ -1,0 +1,49 @@
+From ec2269ad7cbdbbd674d4fdbf5c670e43c937c2a6 Mon Sep 17 00:00:00 2001
+From: Michal Domonkos <mdomonko@redhat.com>
+Date: Tue, 2 Feb 2016 10:44:04 +0100
+Subject: [PATCH] yum-cron: fix the parsing of update_cmd. BZ 1294789
+
+This fixes the case when {minimal-}security-severity is used as
+update_cmd in the conf file.  Previously, the method would incorrectly
+handle those two cases the same way as "default".
+---
+ yum-cron/yum-cron.py | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 20911af..039f537 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -427,24 +427,23 @@ class YumCronBase(yum.YumBase, YumOutput):
+                 self.updateinfo_filters['sevs'] = sevs.split(",")
+ 
+ 
+-            if self.opts.update_cmd in ('minimal', 'minimal-security'):
++            if update_cmd in ('minimal', 'minimal-security'):
+                 if not yum.updateinfo.update_minimal(self):
+                     return False
+                 self.updateinfo_filters['bugfix'] = True
+-            elif self.opts.update_cmd in ('default', 'security',
+-                                          'default-security'):
++            elif update_cmd in ('default', 'security', 'default-security'):
+                 if not self.update():
+                     return False
+             else:
+                 # return False ?
+-                self.opts.update_cmd = 'default'
++                update_cmd = 'default'
+                 if not self.update():
+                     return False
+ 
+-            if self.opts.update_cmd.endswith("security"):
++            if update_cmd.endswith("security"):
+                 self.updateinfo_filters['security'] = True
+                 yum.updateinfo.remove_txmbrs(self)
+-            elif self.opts.update_cmd == 'minimal':
++            elif update_cmd == 'minimal':
+                 self.updateinfo_filters['bugfix'] = True
+                 yum.updateinfo.remove_txmbrs(self)
+ 
+-- 
+2.5.0
+

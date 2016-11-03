@@ -1,0 +1,42 @@
+commit 4e1de20b61ae3227d9fc973193a60cf7997e8606
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Fri Feb 19 11:05:23 2016 +0100
+
+    yum-cron: don't crash with non-ascii email. BZ 1202680
+    
+    Previously, we constructed our MIMEText object with the default us-ascii
+    charset, which caused it to encode the unicode string (self.output) with
+    the us-ascii codec.  This worked fine as long as the string contained
+    ascii-only chars.  However, if yum-cron was run with a language which
+    makes use of non-ascii chars, this would fail and MIMEText would crash.
+    
+    To fix that, we need to tell MIMEText to encode the message with utf-8
+    instead.  However, that also causes the message to be transfer-encoded
+    to base64 which is heavier and uglier, so let's limit that to non-ascii
+    email only.
+
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 039f537..ccba690 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -223,8 +223,18 @@ class EmailEmitter(UpdateEmitter):
+         # Don't send empty emails
+         if not self.output:
+             return
+-        # Build up the email to be sent
+-        msg = MIMEText(''.join(self.output))
++        # Build up the email to be sent.  Encode it with us-ascii instead of
++        # utf-8 if possible.  This ensures the email package will not
++        # transfer-encode it to base64 in such a case (it decides based on the
++        # charset passed to the MIMEText constructor).
++        output = ''.join(self.output)
++        try:
++            output.encode('us-ascii')
++        except UnicodeEncodeError:
++            charset = 'utf-8'
++        else:
++            charset = 'us-ascii'
++        msg = MIMEText(output, 'plain', charset)
+         msg['Subject'] = self.subject
+         msg['From'] = self.opts.email_from
+         msg['To'] = ",".join(self.opts.email_to)

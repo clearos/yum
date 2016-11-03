@@ -1,0 +1,408 @@
+diff -up yum-3.4.3/yumcommands.py.orig yum-3.4.3/yumcommands.py
+--- yum-3.4.3/yumcommands.py.orig	2016-07-21 11:39:40.422379800 +0200
++++ yum-3.4.3/yumcommands.py	2016-07-21 11:40:42.144992126 +0200
+@@ -42,6 +42,7 @@ import errno
+ import yum.config
+ from yum import updateinfo
+ from yum.packages import parsePackages
++from yum.fssnapshots import LibLVMError, lvmerr2str
+ 
+ def _err_mini_usage(base, basecmd):
+     if basecmd not in base.yum_cli_commands:
+@@ -4266,12 +4267,19 @@ class FSSnapshotCommand(YumCommand):
+             return 1, [basecmd + ' ' + subcommand + ' done']
+ 
+         if subcommand == 'list':
+-            snaps = base.fssnap.old_snapshots()
++            try:
++                snaps = base.fssnap.old_snapshots()
++            except LibLVMError as e:
++                return 1, [_("Failed to list snapshots: ") + lvmerr2str(e)]
+             print _("List of %u snapshosts:") % len(snaps)
+             self._li_snaps(base, snaps)
+ 
+         if subcommand == 'delete':
+-            snaps = base.fssnap.old_snapshots()
++            msg = _("Failed to delete snapshots: ")
++            try:
++                snaps = base.fssnap.old_snapshots()
++            except LibLVMError as e:
++                return 1, [msg + lvmerr2str(e)]
+             devs = [x['dev'] for x in snaps]
+             snaps = set()
+             for dev in devs:
+@@ -4282,13 +4290,20 @@ class FSSnapshotCommand(YumCommand):
+                     if dev == extcmd or fnmatch.fnmatch(dev, extcmd):
+                         snaps.add(dev)
+                         break
+-            snaps = base.fssnap.del_snapshots(devices=snaps)
++            try:
++                snaps = base.fssnap.del_snapshots(devices=snaps)
++            except LibLVMError as e:
++                return 1, [msg + lvmerr2str(e)]
+             print _("Deleted %u snapshosts:") % len(snaps)
+             self._li_snaps(base, snaps)
+ 
+         if subcommand in ('have-space', 'has-space'):
+             pc = base.conf.fssnap_percentage
+-            if base.fssnap.has_space(pc):
++            try:
++                has_space = base.fssnap.has_space(pc)
++            except LibLVMError as e:
++                return 1, [_("Could not determine free space on logical volumes: ") + lvmerr2str(e)]
++            if has_space:
+                 print _("Space available to take a snapshot.")
+             else:
+                 print _("Not enough space available on logical volumes to take a snapshot.")
+@@ -4296,14 +4311,22 @@ class FSSnapshotCommand(YumCommand):
+         if subcommand == 'create':
+             tags = {'*': ['reason=manual']}
+             pc = base.conf.fssnap_percentage
+-            snaps = base.fssnap.snapshot(pc, tags=tags)
++            msg = _("Failed to create snapshots")
++            try:
++                snaps = base.fssnap.snapshot(pc, tags=tags)
++            except LibLVMError as e:
++                msg += ": " + lvmerr2str(e)
++                snaps = []
+             if not snaps:
+-                print _("Failed to create snapshots")
++                print msg
+             for (odev, ndev) in snaps:
+                 print _("Created snapshot from %s, results is: %s") %(odev,ndev)
+ 
+         if subcommand == 'summary':
+-            snaps = base.fssnap.old_snapshots()
++            try:
++                snaps = base.fssnap.old_snapshots()
++            except LibLVMError as e:
++                return 1, [_("Failed to list snapshots: ") + lvmerr2str(e)]
+             if not snaps:
+                 print _("No snapshots, LVM version:"), base.fssnap.version
+                 return 0, [basecmd + ' ' + subcommand + ' done']
+diff -up yum-3.4.3/yum/fssnapshots.py.orig yum-3.4.3/yum/fssnapshots.py
+--- yum-3.4.3/yum/fssnapshots.py.orig	2016-07-21 11:39:40.351380246 +0200
++++ yum-3.4.3/yum/fssnapshots.py	2016-07-21 11:40:02.211242946 +0200
+@@ -6,6 +6,7 @@ import time
+ from datetime import datetime
+ 
+ import subprocess
++from yum import _
+ 
+ try:
+     import lvm
+@@ -24,6 +25,14 @@ except:
+     lvm = None
+     _ver = None
+ 
++if lvm is not None:
++    from lvm import LibLVMError
++    class _ResultError(LibLVMError):
++        """Exception raised for LVM calls resulting in bad return values."""
++        pass
++else:
++    LibLVMError = None
++
+ 
+ def _is_origin(lv):
+     snap = lv.getAttr()
+@@ -53,14 +62,18 @@ def _vg_name2lv(vg, lvname):
+         return None
+ 
+ def _list_vg_names():
+-    names = lvm.listVgNames()
++    try:
++        names = lvm.listVgNames()
++    except LibLVMError:
++        # Try to use the lvm binary instead
++        names = []
+ 
+     if not names: # Could be just broken...
+         p = subprocess.Popen(["/sbin/lvm", "vgs", "-o", "vg_name"],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+         err = p.wait()
+         if err:
+-            return [] # Meh.
++            raise _ResultError(_("Failed to obtain volume group names"))
+ 
+         output = p.communicate()[0]
+         output = output.split('\n')
+@@ -132,6 +145,25 @@ def _lv_data(vg, lv):
+ 
+     return data
+ 
++def _log_traceback(func):
++    """Decorator for _FSSnap methods that logs LVM tracebacks."""
++    def wrap(self, *args, **kwargs):
++        try:
++            return func(self, *args, **kwargs)
++        except LibLVMError as e:
++            if self._logger is not None:
++                self._logger.exception(e)
++            raise
++    return wrap
++
++def lvmerr2str(exc):
++    """Convert a LibLVMError instance to a readable error message."""
++    if type(exc) == LibLVMError and len(exc.args) == 2:
++        # args[0] is the error number so ignore that
++        return exc.args[1]
++    else:
++        return str(exc)
++
+ 
+ class _FSSnap(object):
+ 
+@@ -139,7 +171,7 @@ class _FSSnap(object):
+     # New style is: fedora/root fedora/swap
+     # New style is: redhat/root redhat/swap
+     def __init__(self, root="/", lookup_mounts=True,
+-                 devices=('!*/swap', '!*/lv_swap')):
++                 devices=('!*/swap', '!*/lv_swap'), logger=None):
+         if not lvm or os.geteuid():
+             devices = []
+ 
+@@ -150,12 +182,18 @@ class _FSSnap(object):
+         self._postfix = None
+         self._root = root
+         self._devs = devices
+-        self._vgnames = []
++        self._vgname_list = None
++        # Logger object to be used for LVM traceback logging
++        self._logger = logger
+ 
+         if not self._devs:
+             return
+ 
+-        self._vgnames = _list_vg_names() if self.available else []
++    @property
++    def _vgnames(self):
++        if self._vgname_list is None:
++            self._vgname_list = _list_vg_names() if self.available else []
++        return self._vgname_list
+ 
+     def _use_dev(self, vgname, lv=None):
+ 
+@@ -196,6 +234,7 @@ class _FSSnap(object):
+ 
+         return found_neg
+ 
++    @_log_traceback
+     def has_space(self, percentage=100):
+         """ See if we have enough space to try a snapshot. """
+ 
+@@ -207,7 +246,8 @@ class _FSSnap(object):
+ 
+             vg = lvm.vgOpen(vgname, 'r')
+             if not vg:
+-                return False
++                raise _ResultError(
++                    _("Unknown error when opening volume group ") + vgname)
+ 
+             vgfsize = vg.getFreeSize()
+             lvssize = 0
+@@ -230,6 +270,7 @@ class _FSSnap(object):
+         return ret
+ 
+ 
++    @_log_traceback
+     def snapshot(self, percentage=100, prefix='', postfix=None, tags={}):
+         """ Attempt to take a snapshot, note that errors can happen after
+             this function succeeds. """
+@@ -245,7 +286,8 @@ class _FSSnap(object):
+ 
+             vg = lvm.vgOpen(vgname, 'w')
+             if not vg:
+-                return False
++                raise _ResultError(
++                    _("Unknown error when opening volume group ") + vgname)
+ 
+             for lv in vg.listLVs():
+                 lvname = lv.getName()
+@@ -257,7 +299,8 @@ class _FSSnap(object):
+                 nlv = lv.snapshot(nlvname, (lv.getSize() * percentage) / 100)
+                 if not nlv: # Failed here ... continuing seems bad.
+                     vg.close()
+-                    return None
++                    raise _ResultError(
++                        _("Unknown error when creating snapshot ") + nlvname)
+ 
+                 odev = "%s/%s" % (vgname,  lvname)
+                 ndev = "%s/%s" % (vgname, nlvname)
+@@ -280,6 +323,7 @@ class _FSSnap(object):
+ 
+         return ret
+ 
++    @_log_traceback
+     def old_snapshots(self):
+         """ List data for old snapshots. """
+ 
+@@ -289,6 +333,9 @@ class _FSSnap(object):
+             # see stuff after changing config. options.
+ 
+             vg = lvm.vgOpen(vgname, 'w')
++            if not vg:
++                raise _ResultError(
++                    _("Unknown error when opening volume group ") + vgname)
+ 
+             for lv in vg.listLVs():
+ 
+@@ -300,6 +347,7 @@ class _FSSnap(object):
+ 
+         return ret
+ 
++    @_log_traceback
+     def del_snapshots(self, devices=[]):
+         """ Remove snapshots. """
+ 
+@@ -318,6 +366,9 @@ class _FSSnap(object):
+ 
+         for vgname in togo:
+             vg = lvm.vgOpen(vgname, 'w')
++            if not vg:
++                raise _ResultError(
++                    _("Unknown error when opening volume group ") + vgname)
+ 
+             for lvname in togo[vgname]:
+                 lv = _vg_name2lv(vg, lvname)
+diff -up yum-3.4.3/yum/__init__.py.orig yum-3.4.3/yum/__init__.py
+--- yum-3.4.3/yum/__init__.py.orig	2016-07-21 11:39:40.425379782 +0200
++++ yum-3.4.3/yum/__init__.py	2016-07-21 11:40:02.211242946 +0200
+@@ -81,6 +81,7 @@ import yumRepo
+ import callbacks
+ import yum.history
+ import yum.fssnapshots
++from yum.fssnapshots import LibLVMError, lvmerr2str
+ import yum.igroups
+ import update_md
+ 
+@@ -204,6 +205,7 @@ class YumBase(depsolve.Depsolve):
+         self._not_found_i = {}
+         self.logger = logging.getLogger("yum.YumBase")
+         self.verbose_logger = logging.getLogger("yum.verbose.YumBase")
++        self.file_logger = logging.getLogger("yum.filelogging.YumBase")
+         self._override_sigchecks = False
+         self._repos = RepoStorage(self)
+         self.repo_setopts = {} # since we have to use repo_setopts in base and 
+@@ -1048,7 +1050,8 @@ class YumBase(depsolve.Depsolve):
+         if self._fssnap is None:
+             devices = self.conf.fssnap_devices
+             self._fssnap = yum.fssnapshots._FSSnap(root=self.conf.installroot,
+-                                                   devices=devices)
++                                                   devices=devices,
++                                                   logger=self.file_logger)
+ 
+         return self._fssnap
+ 
+@@ -1726,6 +1729,37 @@ much more problems).
+         :raises: :class:`yum.Errors.YumRPMTransError` if there is a
+            transaction cannot be completed
+         """
++
++        def create_snapshot(post=False):
++            """Create the pre or post trans snapshot if we have free space."""
++            msg = _("Not enough space on logical volumes to create %s FS snapshot." %
++                    ("post trans" if post else "pre."))
++            try:
++                has_space = self.fssnap.has_space(self.conf.fssnap_percentage)
++            except LibLVMError as e:
++                msg = _("Could not determine free space on logical volumes: ") + lvmerr2str(e)
++                has_space = False
++            if not has_space:
++                if not post and self.conf.fssnap_abort_on_errors in ('snapshot-failure', 'any'):
++                    raise Errors.YumRPMTransError(msg="Aborting transaction", errors=msg)
++                else:
++                    self.verbose_logger.critical(msg)
++            else:
++                tags = {'*': ['reason=automatic']} # FIXME: pre. and post tags
++                msg = _("Failed to create snapshot")
++                try:
++                    snaps = self.fssnap.snapshot(self.conf.fssnap_percentage, tags=tags)
++                except LibLVMError as e:
++                    msg += ": " + lvmerr2str(e)
++                    snaps = []
++                if not snaps:
++                    if not post and self.conf.fssnap_abort_on_errors in ('snapshot-failure', 'any'):
++                        raise Errors.YumRPMTransError(msg="Aborting transaction", errors=msg)
++                    else:
++                        self.verbose_logger.critical(msg)
++                for (odev, ndev) in snaps:
++                    self.verbose_logger.info(_("Created snapshot from %s, results is: %s") % (odev, ndev))
++
+         if (self.conf.fssnap_automatic_pre or self.conf.fssnap_automatic_post) and not self.fssnap.available:
+             msg = _("Snapshot support not available.")
+             if self.conf.fssnap_abort_on_errors in ('broken-setup', 'any'):
+@@ -1737,7 +1771,13 @@ much more problems).
+                                        self.conf.fssnap_automatic_post) and
+                                       self.conf.fssnap_automatic_keep):
+             # Automatically kill old snapshots...
+-            snaps = self.fssnap.old_snapshots()
++            cleanup_fail = False
++            try:
++                snaps = self.fssnap.old_snapshots()
++            except LibLVMError as e:
++                self.verbose_logger.debug(lvmerr2str(e))
++                cleanup_fail = True
++                snaps = []
+             snaps = sorted(snaps, key=lambda x: (x['ctime'], x['origin_dev']),
+                            reverse=True)
+             last = '<n/a>'
+@@ -1754,30 +1794,22 @@ much more problems).
+                 if num > self.conf.fssnap_automatic_keep:
+                     todel.append(snap['dev'])
+             # Display something to the user?
+-            snaps = self.fssnap.del_snapshots(devices=todel)
++            try:
++                snaps = self.fssnap.del_snapshots(devices=todel)
++            except LibLVMError as e:
++                self.verbose_logger.debug(lvmerr2str(e))
++                cleanup_fail = True
++                snaps = []
+             if len(snaps):
+                 self.verbose_logger.info(_("Deleted %u snapshots.") % len(snaps))
++            elif cleanup_fail:
++                self.verbose_logger.warning(_("Skipping the cleanup of old "
++                                              "snapshots due to errors"))
+ 
+         if (self.fssnap.available and
+             (not self.ts.isTsFlagSet(rpm.RPMTRANS_FLAG_TEST) and
+             self.conf.fssnap_automatic_pre)):
+-            if not self.fssnap.has_space(self.conf.fssnap_percentage):
+-                msg = _("Not enough space on logical volumes to create pre. FS snapshot.")
+-                if self.conf.fssnap_abort_on_errors in ('snapshot-failure', 'any'):
+-                    raise Errors.YumRPMTransError(msg="Aborting transaction", errors=msg)
+-                else:
+-                    self.verbose_logger.critical(msg)
+-            else:
+-                tags = {'*': ['reason=automatic']} # FIXME: pre. tags
+-                snaps = self.fssnap.snapshot(self.conf.fssnap_percentage, tags=tags)
+-                if not snaps:
+-                    msg = _("Failed to create snapshot")
+-                    if self.conf.fssnap_abort_on_errors in ('snapshot-failure', 'any'):
+-                        raise Errors.YumRPMTransError(msg="Aborting transaction", errors=msg)
+-                    else:
+-                        self.verbose_logger.critical(msg)
+-                for (odev, ndev) in snaps:
+-                    self.verbose_logger.info(_("Created snapshot from %s, results is: %s") % (odev, ndev))
++            create_snapshot()
+ 
+         self.plugins.run('pretrans')
+ 
+@@ -1912,16 +1944,7 @@ much more problems).
+         if (self.fssnap.available and
+             (not self.ts.isTsFlagSet(rpm.RPMTRANS_FLAG_TEST) and
+             self.conf.fssnap_automatic_post)):
+-            if not self.fssnap.has_space(self.conf.fssnap_percentage):
+-                msg = _("Not enough space on logical volumes to create post trans FS snapshot.")
+-                self.verbose_logger.critical(msg)
+-            else:
+-                tags = {'*': ['reason=automatic']} # FIXME: post tags
+-                snaps = self.fssnap.snapshot(self.conf.fssnap_percentage, tags=tags)
+-                if not snaps:
+-                    self.verbose_logger.critical(_("Failed to create snapshot"))
+-                for (odev, ndev) in snaps:
+-                    self.verbose_logger.info(_("Created snapshot from %s, results is: %s") % (odev, ndev))
++            create_snapshot(post=True)
+         return resultobject
+ 
+     def verifyTransaction(self, resultobject=None, txmbr_cb=None):

@@ -1,0 +1,70 @@
+commit 13a1fddf27dd16a70b639630d209c0f16bd5097e
+Author: Dennis Gilmore <dennis@ausil.us>
+Date:   Wed Feb 12 18:12:54 2014 -0500
+
+     ppc64le is its own arch treat it as such.
+    
+     ppc64le is ppc64 little endian, it is a completely incompatable arch
+    to all other 64 bit power builds and can not be multilibbed with ppc.
+    While it works okay in the default Fedora setup its because Fedora
+    patches _ppc64_native_is_best to True as soon as its False you get
+    unexpected results.
+     This patch covers things in both setups and makes it clear how it
+    works.
+    
+    Signed-off-by: Dennis Gilmore <dennis@ausil.us>
+
+diff --git a/rpmUtils/arch.py b/rpmUtils/arch.py
+index 6172b1a..54fa189 100644
+--- a/rpmUtils/arch.py
++++ b/rpmUtils/arch.py
+@@ -31,7 +31,10 @@ arches = {
+     "x86_64": "athlon",
+     "amd64": "x86_64",
+     "ia32e": "x86_64",
+-    
++
++    #ppc64le
++    "ppc64le":  "noarch",
++
+     # ppc
+     "ppc64p7": "ppc64",
+     "ppc64pseries": "ppc64",
+@@ -412,7 +415,7 @@ def getBestArch(myarch=None):
+     if arch.startswith("sparc64"):
+         arch = multilibArches[arch][1]
+ 
+-    if arch.startswith("ppc64") and not _ppc64_native_is_best:
++    if arch.startswith("ppc64") and not _ppc64_native_is_best and arch != "ppc64le":
+         arch = 'ppc'
+ 
+     return arch
+@@ -430,6 +433,8 @@ def getBaseArch(myarch=None):
+ 
+     if myarch.startswith("sparc64"):
+         return "sparc"
++    elif myarch == "ppc64le":
++        return "ppc64le"
+     elif myarch.startswith("ppc64") and not _ppc64_native_is_best:
+         return "ppc"
+     elif myarch.startswith("arm64"):
+commit 1a1a33f195a6fb6e8738e48fcb6142c53a539b6d
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Tue Apr 5 14:54:05 2016 +0200
+
+    Add aarch64 to rpmUtils.arch.arches.
+
+diff --git a/rpmUtils/arch.py b/rpmUtils/arch.py
+index a3bade5..d63ec25 100644
+--- a/rpmUtils/arch.py
++++ b/rpmUtils/arch.py
+@@ -80,6 +80,9 @@ arches = {
+     # arm64
+     "arm64": "noarch",
+ 
++    # aarch64
++    "aarch64": "noarch",
++
+     # super-h 
+     "sh4a": "sh4",
+     "sh4": "noarch",
