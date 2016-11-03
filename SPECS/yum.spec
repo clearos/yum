@@ -36,7 +36,7 @@ Release: 150%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://yum.baseurl.org/download/3.4/%{name}-%{version}.tar.gz
-Source1: yum.conf.fedora
+Source1: yum.conf.centos
 Source2: yum-updatesd.conf.fedora
 Patch1: yum-distro-configs.patch
 Patch5: geode-arch.patch
@@ -150,6 +150,7 @@ BuildRequires: pygpgme
 # End of CheckRequires
 Conflicts: pirut < 1.1.4
 Requires: python >= 2.4
+Requires: yum-plugin-fastestmirror
 Requires: rpm-python, rpm >= 0:4.4.2
 Requires: python-iniparse
 Requires: python-sqlite
@@ -578,6 +579,13 @@ exit 0
 %endif
 
 %changelog
+* Thu Nov 03 2016 CentOS Sources <bugs@centos.org> - 3.4.3-150.el7.centos
+- CentOS yum config
+-  use the CentOS bug tracker url
+-  retain installonly limit of 5
+-  ensure distrover is always from centos-release
+- Make yum require yum-plugin-fastestmirror
+
 * Mon Sep 19 2016 Valentina Mukhamedzhanova <vmukhame@redhat.com> - 3.4.3-150
 - Check for _metadata_cache_req properly.
 - Resolves: bug#1377328
