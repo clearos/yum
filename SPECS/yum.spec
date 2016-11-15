@@ -92,6 +92,8 @@ Patch164: BZ-1233152-pvm-api-lv_attr.patch
 Patch165: BZ-1244119-fssnapshot-automatic-percentage-manpage.patch
 Patch166: BZ-1259837-igroups-empty-lines.patch
 
+Patch1000: centos-branding-yum.patch
+
 # rhel-7.3
 Patch200: BZ-1267234-groupinstall-fail-on-non-existent.patch
 Patch201: BZ-1274211-skip-missing-names.patch
@@ -348,6 +350,8 @@ Install this package if you want auto yum updates nightly via cron.
 %patch236 -p1
 %patch237 -p1
 %patch238 -p1
+
+%patch1000 -p1
 
 # Do distro config. changes after everything else.
 %patch1 -p1
