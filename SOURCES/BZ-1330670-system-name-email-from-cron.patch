@@ -1,0 +1,46 @@
+commit 8bc82519a96a26025afcfdb05e5624739440b21c
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Thu Jun 30 17:13:47 2016 +0200
+
+    yum-cron: replace 'localhost' with system_name value in email_from. BZ 1330670
+
+diff --git a/etc/yum-cron-hourly.conf b/etc/yum-cron-hourly.conf
+index 63c0bb6..5265d03 100644
+--- a/etc/yum-cron-hourly.conf
++++ b/etc/yum-cron-hourly.conf
+@@ -47,6 +47,7 @@ output_width = 80
+ 
+ [email]
+ # The address to send email messages from.
++# NOTE: 'localhost' will be replaced with the value of system_name.
+ email_from = root
+ 
+ # List of addresses to send messages to.
+diff --git a/etc/yum-cron.conf b/etc/yum-cron.conf
+index 7ab4d04..6a3d5ca 100644
+--- a/etc/yum-cron.conf
++++ b/etc/yum-cron.conf
+@@ -49,6 +49,7 @@ output_width = 80
+ 
+ [email]
+ # The address to send email messages from.
++# NOTE: 'localhost' will be replaced with the value of system_name.
+ email_from = root@localhost
+ 
+ # List of addresses to send messages to.
+diff --git a/yum-cron/yum-cron.py b/yum-cron/yum-cron.py
+index 12c7720..23f36d3 100755
+--- a/yum-cron/yum-cron.py
++++ b/yum-cron/yum-cron.py
+@@ -236,7 +236,10 @@ class EmailEmitter(UpdateEmitter):
+             charset = 'us-ascii'
+         msg = MIMEText(output, 'plain', charset)
+         msg['Subject'] = self.subject
+-        msg['From'] = self.opts.email_from
++        username, at, domain = self.opts.email_from.rpartition('@')
++        if domain == 'localhost':
++            domain = self.opts.system_name
++        msg['From'] = '%s@%s' % (username, domain)
+         msg['To'] = ",".join(self.opts.email_to)
+ 
+         # Send the email

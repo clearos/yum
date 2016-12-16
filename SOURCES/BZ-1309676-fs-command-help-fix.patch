@@ -1,0 +1,19 @@
+commit f1766901d3192df6af77de0d0aee027cd9ebae3b
+Author: James Antill <james@and.org>
+Date:   Fri Apr 11 01:23:31 2014 -0400
+
+    Fix summary for yum fs command. BZ 1086461.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 8ee2650..74e4d86 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -4324,7 +4324,7 @@ class FSCommand(YumCommand):
+         return "[]"
+ 
+     def getSummary(self):
+-        return _("Creates filesystem snapshots, or lists/deletes current snapshots.")
++        return _("Acts on the filesystem data of the host, mainly for removing docs/lanuages for minimal hosts.")
+ 
+     def doCheck(self, base, basecmd, extcmds):
+         """Verify that conditions are met so that this command can run.

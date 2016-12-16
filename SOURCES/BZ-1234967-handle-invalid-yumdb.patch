@@ -1,0 +1,155 @@
+commit f5c953e2b8c49187f8e874a53f1bb6ed89e4d810
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Tue Feb 16 13:42:20 2016 +0100
+
+    Allow for validating attributes read from yumdb
+    
+    Make sure we don't expose corrupted attributes read from the yumdb to
+    the consumers.  There's at least one report of such a corruption: BZ
+    1234967.  Instead, make requesting a malformed yumdb attribute
+    equivalent to requesting a non-existent one -- which is a valid
+    scenario, already handled by the consumers.
+    
+    Note that the actual validator function that fixes the above bug will be
+    committed separately.
+
+diff --git a/yum/rpmsack.py b/yum/rpmsack.py
+index 229e1a1..270ade9 100644
+--- a/yum/rpmsack.py
++++ b/yum/rpmsack.py
+@@ -1755,6 +1755,9 @@ class RPMDBAdditionalDataPackage(object):
+                                 'group_member',
+                                 'command_line'])
+ 
++    # Validate these attributes when they are read from a file
++    _validators = {}
++
+     def __init__(self, conf, pkgdir, yumdb_cache=None):
+         self._conf = conf
+         self._mydir = pkgdir
+@@ -1903,6 +1906,15 @@ class RPMDBAdditionalDataPackage(object):
+         fo.close()
+         del fo
+ 
++        # Validate the attribute we just read from the file.  Some attributes
++        # may require being in a specific format and we can't guarantee the
++        # file has not been tampered with outside of yum.
++        if attr in self._validators:
++            valid = self._validators[attr]
++            if not valid(value):
++                raise AttributeError, \
++                    "Invalid value of attribute %s on %s" % (attr, self)
++
+         if info.st_nlink > 1 and self._yumdb_cache is not None:
+             self._yumdb_cache[key] = value
+         self._auto_cache(attr, value, fn, info)
+commit 6972a28059790177ab95e0bce92311aa882ae465
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Tue Feb 16 13:53:04 2016 +0100
+
+    Don't crash on invalid from_repo in yumdb. BZ 1234967
+    
+    Implement a yumdb validator function for the from_repo attribute.  This
+    prevents yum from crashing if an implicit conversion to unicode takes
+    place somewhere and the attribute contains non-ascii chars due to some
+    yumdb corruption.
+    
+    Reproducers:
+    
+    $ yum install foo
+    $ yumdb set from_repo <non-ascii-chars> foo
+    $ yum list foo  # crash
+    $ yum --disablerepo=<repo-with-foo> reinstall foo  # crash
+    $ yum --verbose version installed  # crash
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 84bea3e..1f6ce16 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -95,7 +95,6 @@ from yum.rpmtrans import RPMTransaction,SimpleCliCallBack
+ from yum.i18n import to_unicode, to_str, exception2msg
+ from yum.drpm import DeltaInfo, DeltaPackage
+ 
+-import string
+ import StringIO
+ 
+ from weakref import proxy as weakref
+@@ -476,17 +475,7 @@ class YumBase(depsolve.Depsolve):
+                 continue
+ 
+             # Check the repo.id against the valid chars
+-            bad = None
+-            for byte in section:
+-                if byte in string.ascii_letters:
+-                    continue
+-                if byte in string.digits:
+-                    continue
+-                if byte in "-_.:":
+-                    continue
+-                
+-                bad = byte
+-                break
++            bad = misc.validate_repoid(section)
+ 
+             if bad:
+                 self.logger.warning("Bad id for repo: %s, byte = %s %d" %
+diff --git a/yum/misc.py b/yum/misc.py
+index f72f028..345934b 100644
+--- a/yum/misc.py
++++ b/yum/misc.py
+@@ -24,6 +24,7 @@ import bz2
+ import gzip
+ import shutil
+ import urllib
++import string
+ _available_compression = ['gz', 'bz2']
+ try:
+     import lzma
+@@ -1248,3 +1249,12 @@ def filter_pkgs_repoid(pkgs, repoid):
+             continue
+         ret.append(pkg)
+     return ret
++
++def validate_repoid(repoid):
++    """Return the first invalid char found in the repoid, or None."""
++    allowed_chars = string.ascii_letters + string.digits + '-_.:'
++    for char in repoid:
++        if char not in allowed_chars:
++            return char
++    else:
++        return None
+diff --git a/yum/rpmsack.py b/yum/rpmsack.py
+index 270ade9..11814f1 100644
+--- a/yum/rpmsack.py
++++ b/yum/rpmsack.py
+@@ -1756,7 +1756,10 @@ class RPMDBAdditionalDataPackage(object):
+                                 'command_line'])
+ 
+     # Validate these attributes when they are read from a file
+-    _validators = {}
++    _validators = {
++        # Fixes BZ 1234967
++        'from_repo': lambda repoid: misc.validate_repoid(repoid) is None,
++    }
+ 
+     def __init__(self, conf, pkgdir, yumdb_cache=None):
+         self._conf = conf
+commit c02805ed3b23f97843931e0784d2823b8024e441
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Tue Feb 16 17:20:26 2016 +0100
+
+    docs: mention special case for unknown from_repo
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index e428148..eb52fb7 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -964,6 +964,8 @@ The format of the output of yum list is:
+ 
+ name.arch [epoch:]version-release  repo or @installed-from-repo
+ 
++Note that if the repo cannot be determined, "installed" is printed instead.
++
+ .IP "\fByum list [all | glob_exp1] [glob_exp2] [\&.\&.\&.]\fP"
+ List all available and installed packages\&.
+ .IP "\fByum list available [glob_exp1] [\&.\&.\&.]\fP"

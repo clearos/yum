@@ -1,0 +1,60 @@
+commit 8d5248c4ab3e8efab00537da8f35a77b86f3c333
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Fri May 6 11:30:56 2016 +0200
+
+    Add autosavets option allowing to avoid autosaving transactions. BZ 1208803
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index efc6765..4d53c8e 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -897,6 +897,12 @@ Note that if loadts_ignorerpm is True, this option does nothing.
+ Boolean (1, 0, True, False, yes, no) Defaults to False
+ 
+ .IP
++\fBautosavets\fR
++Should yum automatically save a transaction to a file when the transaction is
++solved but not run.
++Boolean (1, 0, True, False, yes, no) Defaults to True
++
++.IP
+ \fBfssnap_automatic_pre\fR
+ Should yum try to automatically create a snapshot before it runs a transaction.
+ Boolean (1, 0, True, False, yes, no) Defaults to False
+diff --git a/yum/__init__.py b/yum/__init__.py
+index c896fff..764e97d 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -1355,7 +1355,8 @@ much more problems).
+             self._depsolving_failed = False
+ 
+         if rescode == 2:
+-            self.save_ts(auto=True)
++            if self.conf.autosavets:
++                self.save_ts(auto=True)
+ 
+         # Make sure we don't fail in rpm if we're installing a package that is
+         # allowed multiple installs but has a newer version already installed.
+diff --git a/yum/config.py b/yum/config.py
+index 84be564..cae914d 100644
+--- a/yum/config.py
++++ b/yum/config.py
+@@ -893,6 +893,7 @@ class YumConf(StartupConf):
+     loadts_ignoremissing = BoolOption(False)
+     loadts_ignorerpm = BoolOption(False)
+     loadts_ignorenewrpm = BoolOption(False)
++    autosavets = BoolOption(True)
+     
+     clean_requirements_on_remove = BoolOption(False)
+ 
+diff -up yum-3.4.3/test/testbase.py.old yum-3.4.3/test/testbase.py
+--- yum-3.4.3/test/testbase.py.old	2016-05-10 16:58:02.812286775 +0200
++++ yum-3.4.3/test/testbase.py	2016-05-10 16:58:43.590544423 +0200
+@@ -69,6 +69,7 @@ class FakeConf(object):
+         self.diskspacecheck = True
+         self.depsolve_loop_limit = 10
+         self.override_install_langs = ''
++        self.autosavets = True
+ 
+ class FakeSack:
+     """ Fake PackageSack to use with FakeRepository"""

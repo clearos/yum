@@ -1,0 +1,23 @@
+commit 8ae3ad9a8bb297c39bc287802b3220e497dfbbcc
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Thu Apr 14 13:36:02 2016 +0200
+
+    Make YumHistoryRpmdbProblem objects hashable. BZ 1292087
+    
+    Let's use rpid for that to ensure we get the same hash value for objects
+    that compare equal (which is iff their rpid's match, see __cmp__).
+
+diff --git a/yum/history.py b/yum/history.py
+index d08837c..f1295de 100644
+--- a/yum/history.py
++++ b/yum/history.py
+@@ -244,6 +244,9 @@ class YumHistoryRpmdbProblem:
+         ret = cmp(self.rpid, other.rpid)
+         return ret
+ 
++    def __hash__(self):
++        return hash(self.rpid)
++
+     def _getProbPkgs(self):
+         if self._loaded_P is None:
+             self._loaded_P = sorted(self._history._old_prob_pkgs(self.rpid))

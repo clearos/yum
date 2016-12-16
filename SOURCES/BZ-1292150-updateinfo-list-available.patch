@@ -1,0 +1,82 @@
+commit 8ccc79d82bf0894def61cd2643d63e4adf3dcd02
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Dec 16 15:31:15 2015 +0100
+
+    Fix 'updateinfo list available' logic and make 'updates' the default
+
+diff --git a/docs/yum.8 b/docs/yum.8
+index 99862fa..e428148 100644
+--- a/docs/yum.8
++++ b/docs/yum.8
+@@ -630,20 +630,19 @@ to your machine (including anything installed, if you supply "all").
+ .br
+ 
+ .br
+-.I \fR "\fB* all\fP"
+-Is used to display information about both install and available advisories.
+-.br
+-.I \fR "\fB* available\fP"
+-Is used to display information about just available advisories. This is the
+-default.
++.I \fR "\fB* updates\fP"
++Is used to display information about advisories for packages that can be
++updated. This is the default.
+ .br
+ .I \fR "\fB* installed\fP"
+-Is used to display information about just install advisories.
++Is used to display information only about installed advisories.
+ .br
+-.I \fR "\fB* updates\fP"
+-This is mostly the same as "available" but it only shows advisory information
+-for packages that can be updated to.
+-
++.I \fR "\fB* available\fP"
++Is used to display information about advisories for packages available
++for updating or installation.
++.br
++.I \fR "\fB* all\fP"
++Is used to display information about both installed and available advisories.
+ 
+ .br
+ They all take as arguments:
+diff -up yum-3.4.3/yumcommands.py.old yum-3.4.3/yumcommands.py
+--- yum-3.4.3/yumcommands.py.old	2016-03-22 12:22:54.398569730 +0100
++++ yum-3.4.3/yumcommands.py	2016-03-22 12:27:30.261523615 +0100
+@@ -4072,6 +4072,7 @@ class UpdateinfoCommand(YumCommand):
+         extcmds, show_type, filt_type = self._parse_extcmds(extcmds)
+ 
+         list_type = "available"
++        list_type = "updates"
+         if extcmds and extcmds[0] in ("updates","available","installed", "all"):
+             list_type = extcmds.pop(0)
+             if filt_type is None:
+@@ -4087,13 +4088,15 @@ class UpdateinfoCommand(YumCommand):
+         used_map = _upi._ysp_gen_used_map(base.updateinfo_filters)
+         iname2tup = {}
+         if False: pass
+-        elif list_type in ('installed', 'all'):
++        elif list_type == 'installed':
+             name2tup = _upi._get_name2allpkgtup(base)
+             iname2tup = _upi._get_name2instpkgtup(base)
+         elif list_type == 'updates':
+             name2tup = _upi._get_name2oldpkgtup(base)
+-        elif list_type == 'available':
+-            name2tup = _upi._get_name2instpkgtup(base)
++        elif list_type in ('available', 'all'):
++            name2tup = _upi._get_name2aallpkgtup(base)
++            iname2tup = _upi._get_name2instpkgtup(base)
++
+ 
+         def _show_pkgtup(pkgtup):
+             name = pkgtup[0]
+@@ -4106,6 +4109,10 @@ class UpdateinfoCommand(YumCommand):
+                     # Remove any that are newer than what we have installed
+                     if _upi._rpm_tup_vercmp(iname2tup[name], pkgtup) < 0:
+                         continue
++                if list_type == 'available':
++                    # Remove any that are installed
++                    if name in iname2tup and _upi._rpm_tup_vercmp(iname2tup[name], pkgtup) >= 0:
++                        continue
+ 
+                 if _upi._ysp_should_filter_pkg(opts, name, notice, used_map):
+                     yield (pkgtup, notice)

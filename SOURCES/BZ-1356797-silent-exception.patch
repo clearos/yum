@@ -1,0 +1,78 @@
+commit c8c4065931bec55e9b2eb0f16a97376e8650846b
+Author: Radek Vykydal <rvykydal@redhat.com>
+Date:   Wed Aug 10 11:10:58 2016 +0200
+
+    Report __del__ RepoError exceptions into log instead of stderr (#1356797)
+    
+    Resolves: rhbz#1356797
+    
+    So it does not clutter text UI of clients like Anaconda.
+
+diff --git a/yum/__init__.py b/yum/__init__.py
+index 57e1dfe..9e38320 100644
+--- a/yum/__init__.py
++++ b/yum/__init__.py
+@@ -234,11 +234,14 @@ class YumBase(depsolve.Depsolve):
+         self.updateinfo_filters = {}
+ 
+     def __del__(self):
+-        self.close()
+-        self.closeRpmDB()
+-        self.doUnlock()
+-        # call cleanup callbacks
+-        for cb in self._cleanup: cb()
++        try:
++            self.close()
++            self.closeRpmDB()
++            self.doUnlock()
++            # call cleanup callbacks
++            for cb in self._cleanup: cb()
++        except Errors.RepoError, e:
++            self.verbose_logger.debug("Exception %s %s in %s ignored" % (repr(e), str(e), self.__del__))
+ 
+     def close(self):
+         """Close the history and repo objects."""
+diff --git a/yum/repos.py b/yum/repos.py
+index a0ef28c..017527a 100644
+--- a/yum/repos.py
++++ b/yum/repos.py
+@@ -161,7 +161,10 @@ class RepoStorage:
+         return str(self.repos.keys())
+ 
+     def __del__(self):
+-        self.close()
++        try:
++            self.close()
++        except Errors.RepoError, e:
++            self.logger.debug("Exception %s %s in %s ignored" % (repr(e), str(e), self.__del__))
+ 
+     def close(self):
+         for repo in self.repos.values():
+@@ -423,7 +426,10 @@ class Repository:
+         return hash(self.id)
+         
+     def __del__(self):
+-        self.close()
++        try:
++            self.close()
++        except Errors.RepoError, e:
++            self.logger.debug("Exception %s %s in %s ignored" % (repr(e), str(e), self.__del__))
+ 
+     def _ui_id(self):
+         """ Show self.id, so we can use it and override it. """
+diff --git a/yum/yumRepo.py b/yum/yumRepo.py
+index 9c3d274..2db8faf 100644
+--- a/yum/yumRepo.py
++++ b/yum/yumRepo.py
+@@ -114,7 +114,10 @@ class YumPackageSack(packageSack.PackageSack):
+         self.added = {}
+ 
+     def __del__(self):
+-        self.close()
++        try:
++            self.close()
++        except Errors.RepoError, e:
++            verbose_logger.debug("Exception %s %s in %s ignored" % (repr(e), str(e), self.__del__))
+ 
+     def close(self):
+         self.added = {}

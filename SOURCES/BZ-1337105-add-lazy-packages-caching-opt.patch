@@ -1,0 +1,128 @@
+diff -up yum-3.4.3/docs/yum.conf.5.orig yum-3.4.3/docs/yum.conf.5
+--- yum-3.4.3/docs/yum.conf.5.orig	2016-08-02 15:08:10.160947580 +0200
++++ yum-3.4.3/docs/yum.conf.5	2016-08-02 15:08:30.046853379 +0200
+@@ -381,6 +381,13 @@ that Yum does. This option can take the
+ `packages' means that only RPM package downloads should be cached (but not
+ repository metadata downloads).
+ 
++`lazy:packages' means that act like `packages' unless package verification
++fails (e.g. the package download doesn't match the expected checksum), in which
++case try re-downloading the package as if `none' was set.  This value is a good
++compromise if you want to avoid issues caused by stale proxy cache after remote
++RPMs change contents without changing filenames (e.g. are pushed unsigned and
++later signed) but still want the benefits of package caching whenever possible.
++
+ `none' means that no HTTP downloads should be cached.
+ 
+ The default is `all'. This is recommended unless you are experiencing caching
+diff -up yum-3.4.3/output.py.orig yum-3.4.3/output.py
+--- yum-3.4.3/output.py.orig	2016-08-02 15:08:10.074947988 +0200
++++ yum-3.4.3/output.py	2016-08-02 15:08:30.053853346 +0200
+@@ -472,6 +472,13 @@ class YumOutput:
+         :raises: *errobj*.exception
+         """
+         self.logger.error('%s: %s', errobj.url, errobj.exception)
++        if hasattr(errobj, 'retry_no_cache') and errobj.retry_no_cache and \
++                errobj.exception.errno < 0:
++            self.logger.error(_('Trying again, now avoiding proxy cache.'))
++            # Raising an exception would cause urlgrabber to jump to the next
++            # mirror and what we want here is to retry with the same, so just
++            # return.
++            return
+         self.logger.error(_('Trying other mirror.'))
+         self.suggestKBaseArticle(errobj)
+         raise errobj.exception
+diff -up yum-3.4.3/yum/config.py.orig yum-3.4.3/yum/config.py
+--- yum-3.4.3/yum/config.py.orig	2016-08-02 15:08:10.159947585 +0200
++++ yum-3.4.3/yum/config.py	2016-08-02 15:08:30.048853370 +0200
+@@ -810,7 +810,8 @@ class YumConf(StartupConf):
+     deltarpm_percentage = IntOption(75, range_min=0, range_max=100)
+     deltarpm_metadata_percentage = IntOption(100, range_min=0)
+ 
+-    http_caching = SelectionOption('all', ('none', 'packages', 'all'))
++    http_caching = SelectionOption('all', ('none', 'packages', 'all',
++                                           'lazy:packages'))
+     metadata_expire = SecondsOption(60 * 60 * 6) # Time in seconds (6h).
+     metadata_expire_filter = SelectionOption('read-only:present',
+                                              ('never', 'read-only:future',
+diff -up yum-3.4.3/yum/__init__.py.orig yum-3.4.3/yum/__init__.py
+diff -up yum-3.4.3/yum.spec.orig yum-3.4.3/yum.spec
+--- yum-3.4.3/yum.spec.orig	2016-08-02 15:08:10.150947628 +0200
++++ yum-3.4.3/yum.spec	2016-08-02 15:08:30.047853374 +0200
+@@ -63,7 +63,7 @@ BuildRequires: python >= 2.4
+ BuildRequires: rpm-python, rpm >= 0:4.4.2
+ BuildRequires: python-iniparse
+ BuildRequires: python-sqlite
+-BuildRequires: python-urlgrabber >= 3.9.0-8
++BuildRequires: python-urlgrabber >= 3.10-8
+ BuildRequires: yum-metadata-parser >= 1.1.0
+ BuildRequires: pygpgme
+ # End of CheckRequires
+@@ -72,7 +72,7 @@ Requires: python >= 2.4
+ Requires: rpm-python, rpm >= 0:4.4.2
+ Requires: python-iniparse
+ Requires: python-sqlite
+-Requires: python-urlgrabber >= 3.9.0-8
++Requires: python-urlgrabber >= 3.10-8
+ Requires: yum-metadata-parser >= 1.1.0
+ Requires: pygpgme
+ # rawhide is >= 0.5.3-7.fc18 ... as this is added.
+diff -up yum-3.4.3/yum/yumRepo.py.orig yum-3.4.3/yum/yumRepo.py
+--- yum-3.4.3/yum/yumRepo.py.orig	2016-08-02 15:08:10.104947846 +0200
++++ yum-3.4.3/yum/yumRepo.py	2016-08-02 15:08:30.052853351 +0200
+@@ -336,6 +336,7 @@ class YumRepository(Repository, config.R
+         self._repoXML = None
+         self._oldRepoMDData = {}
+         self.cache = 0
++        self._retry_no_cache = False
+         self.mirrorlistparsed = 0
+         self.yumvar = {} # empty dict of yumvariables for $string replacement
+         self._proxy_dict = {}
+@@ -993,6 +994,7 @@ Insufficient space in download directory
+                             interrupt_callback=self.interrupt_callback,
+                             checkfunc=checkfunc,
+                             size=size,
++                            retry_no_cache=self._retry_no_cache,
+                             **ugopts)
+ 
+             remote = url + '/' + relative
+@@ -1020,6 +1022,7 @@ Insufficient space in download directory
+                                            checkfunc=checkfunc,
+                                            http_headers=headers,
+                                            size=size,
++                                           retry_no_cache=self._retry_no_cache,
+                                            **kwargs
+                                            )
+             except URLGrabError, e:
+@@ -1049,15 +1052,22 @@ Insufficient space in download directory
+                     misc.unlink_f(local)
+                     raise URLGrabError(-1, _('Package does not match intended download.'))
+ 
+-        ret = self._getFile(url=basepath,
+-                        relative=remote,
+-                        local=local,
+-                        checkfunc=checkfunc,
+-                        text=text,
+-                        cache=cache,
+-                        size=package.size,
+-                        **kwargs
+-                        )
++        # We would normally pass this to _getFile() directly but that could
++        # break backward compatibility with plugins that override _getFile()
++        # (BZ 1360532).
++        self._retry_no_cache = self.http_caching == 'lazy:packages'
++        try:
++            ret = self._getFile(url=basepath,
++                            relative=remote,
++                            local=local,
++                            checkfunc=checkfunc,
++                            text=text,
++                            cache=cache,
++                            size=package.size,
++                            **kwargs
++                            )
++        finally:
++            self._retry_no_cache = False
+ 
+         if not kwargs.get('async') and not package.verifyLocalPkg():
+             # Don't return as "success" when bad.

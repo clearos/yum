@@ -1,0 +1,11 @@
+diff -up yum-3.4.3/etc/Makefile.old yum-3.4.3/etc/Makefile
+--- yum-3.4.3/etc/Makefile.old	2016-05-11 15:13:20.615716472 +0200
++++ yum-3.4.3/etc/Makefile	2016-05-11 15:13:35.308778357 +0200
+@@ -1,6 +1,5 @@
+ YUMETC=$(DESTDIR)/etc/yum
+-compdir = $(shell pkg-config --variable=completionsdir bash-completion)
+-compdir := $(or $(compdir), "/etc/bash_completion.d")
++compdir := $(or $(COMPDIR), "/etc/bash_completion.d")
+ 
+ all:
+ 	echo "Nothing to do"

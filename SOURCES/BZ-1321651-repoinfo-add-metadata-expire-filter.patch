@@ -1,0 +1,47 @@
+commit 36a49290d73951bd92dd0b2db877d11db2a3276f
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Mon Apr 25 17:09:25 2016 +0200
+
+    Add metadata_expire_filter to repoinfo output. BZ 1321651
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 7118f3b..618ae5c 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -2325,7 +2325,10 @@ class RepoListCommand(YumCommand):
+                     num = _num2ui_num(repo.metadata_expire)
+                     num = _("%s second(s) (last: %s)") % (num, last)
+ 
+-                out += [base.fmtKeyValFill(_("Repo-expire  : "), num)]
++                out += [base.fmtKeyValFill(_("Repo-expire  : "), num),
++                        base.fmtKeyValFill(_("  Filter     : "),
++                            repo.metadata_expire_filter),
++                        ]
+ 
+                 if repo.exclude:
+                     out += [base.fmtKeyValFill(_("Repo-exclude : "),
+
+commit e2db41de3d19cbd8c94a1c3824b541dbd4b706bb
+Author: Michal Domonkos <mdomonko@redhat.com>
+Date:   Mon Apr 25 15:12:23 2016 +0200
+
+    docs: add a freshness note for metadata_expire_filter
+
+diff --git a/docs/yum.conf.5 b/docs/yum.conf.5
+index f823c6f..efc6765 100644
+--- a/docs/yum.conf.5
++++ b/docs/yum.conf.5
+@@ -646,7 +646,12 @@ Eg. yum list yum
+ `read-only:future' - Commands that are likely to result in running other
+ commands which will require the latest metadata. Eg. yum check-update
+ 
+-Note that this option does not override "yum clean expire-cache".
++Note that this option requires that all the enabled repositories be roughly the
++same freshness (meaning the cache age difference from one another is at most 5
++days).  Failing that, metadata_expire will always be obeyed, just like with
++`never'.
++
++Also note that this option does not override "yum clean expire-cache".
+ 
+ .IP
+ \fBmirrorlist_expire \fR

@@ -1,0 +1,75 @@
+commit f2fc1ef96b0de995e2a61bf219b5d2c1d5a09503
+Author: Valentina Mukhamedzhanova <vmukhame@redhat.com>
+Date:   Wed Mar 5 17:49:02 2014 +0100
+
+     Fix 'yum updateinfo list all new-packages' traceback. BZ 1072945
+    
+    And make 'list' and 'info' indicate if the package is installed.
+
+diff --git a/yumcommands.py b/yumcommands.py
+index 74e4333..4e72a71 100644
+--- a/yumcommands.py
++++ b/yumcommands.py
+@@ -3840,7 +3840,7 @@ class UpdateinfoCommand(YumCommand):
+             mark = ''
+             if list_type == 'all':
+                 mark = '  '
+-                if _upi._rpm_tup_vercmp(iname2tup[pkgtup[0]], pkgtup) >= 0:
++                if pkgtup[0] in iname2tup and _upi._rpm_tup_vercmp(iname2tup[pkgtup[0]], pkgtup) >= 0:
+                     mark = 'i '
+             tn = notice['type']
+             if tn == 'security' and notice['severity']:
+@@ -3879,7 +3879,7 @@ class UpdateinfoCommand(YumCommand):
+                 obj = notice.__str__()
+ 
+             if list_type == 'all':
+-                if _upi._rpm_tup_vercmp(iname2tup[pkgtup[0]], pkgtup) >= 0:
++                if pkgtup[0] in iname2tup and _upi._rpm_tup_vercmp(iname2tup[pkgtup[0]], pkgtup) >= 0:
+                     obj = obj + "\n  Installed : true"
+                 else:
+                     obj = obj + "\n  Installed : false"
+@@ -4029,7 +4029,7 @@ class UpdateinfoCommand(YumCommand):
+             return 0, [basecmd + ' ' + subcommand + ' done']
+ 
+     def doCommand_li_new(self, base, list_type, extcmds, md_info, msg,
+-                         show_pkgs):
++                         show_pkgs, iname2tup):
+         done_pkgs = set()
+         data = []
+         for (notice, pkgtup) in sorted(self._get_new_pkgs(md_info),
+@@ -4055,7 +4055,7 @@ class UpdateinfoCommand(YumCommand):
+                 continue
+             done_pkgs.add(n)
+             data.append((notice, pkgtup, pkgs[0]))
+-        show_pkgs(base, md_info, list_type, None, {}, data, msg)
++        show_pkgs(base, md_info, list_type, None, iname2tup, data, msg)
+ 
+     def _parse_extcmds(self, extcmds):
+         filt_type = None
+@@ -4086,12 +4086,6 @@ class UpdateinfoCommand(YumCommand):
+             if filt_type is None:
+                 extcmds, show_type, filt_type = self._parse_extcmds(extcmds)
+ 
+-        if filt_type == "newpackage":
+-            # No filtering here, as we want what isn't installed...
+-            self.doCommand_li_new(base, list_type, extcmds, md_info, msg,
+-                                  show_pkgs)
+-            return 0, [basecmd + ' new done']
+-
+         opts.sec_cmds = extcmds
+         used_map = _upi._ysp_gen_used_map(base.updateinfo_filters)
+         iname2tup = {}
+diff -up yum-3.4.3/yumcommands.py.old yum-3.4.3/yumcommands.py
+--- yum-3.4.3/yumcommands.py.old	2016-05-10 17:19:04.007269059 +0200
++++ yum-3.4.3/yumcommands.py	2016-05-10 17:20:11.320698042 +0200
+@@ -4094,6 +4094,10 @@ class UpdateinfoCommand(YumCommand):
+             name2tup = _upi._get_name2aallpkgtup(base)
+             iname2tup = _upi._get_name2instpkgtup(base)
+ 
++        if filt_type == "newpackage":
++            self.doCommand_li_new(base, list_type, extcmds, md_info, msg,
++                                  show_pkgs, iname2tup)
++            return 0, [basecmd + ' new done']
+ 
+         def _show_pkgtup(pkgtup):
+             name = pkgtup[0]
